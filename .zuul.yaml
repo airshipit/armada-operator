@@ -1,0 +1,89 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+- project:
+    check:
+      jobs:
+        - armada-operator-docker-build-gate-ubuntu_focal
+
+    gate:
+      jobs:
+        - armada-operator-docker-build-gate-ubuntu_focal
+
+    post:
+      jobs:
+        - armada-operator-docker-publish-ubuntu_focal
+
+
+- nodeset:
+    name: armada-operator-single-node-focal
+    nodes:
+      - name: primary
+        label: ubuntu-focal
+
+
+- job:
+    name: armada-operator-docker-build-gate-ubuntu_focal
+    timeout: 3600
+    run: tools/gate/playbooks/docker-image-build.yaml
+    nodeset: armada-single-node-focal
+    vars:
+      publish: false
+      distro: ubuntu_focal
+      tags:
+        dynamic:
+          patch_set: true
+
+
+- job:
+    name: armada-operator-docker-publish-ubuntu_focal
+    timeout: 3600
+    run: tools/gate/playbooks/docker-image-build.yaml
+    nodeset: armada-single-node-focal
+    secrets:
+      - airship_armada_operator_quay_creds
+    vars:
+      publish: true
+      distro: ubuntu_focal
+      tags:
+        dynamic:
+          branch: true
+          commit: true
+        static:
+          - latest
+
+
+- secret:
+    name: airship_armada_operator_quay_creds
+    data:
+      username: !encrypted/pkcs1-oaep
+        - DjQA+Mkrg0oNfTcPFBCOwx0K+B7LsV9ceV7MK9C83sZDKUC5aKfhdn/myvKQKunIth4B8
+          y++q+ano+rk3fteyT5hAT73e59koN0EkHrMknqdm8C0AMXoGJ2ktZFwho0ehzj8WX43hW
+          67cWRYUHImOxuUn9oaMT11ZrDCBbAz1gKLRGPgtiYaEnKjaksiAcaBY1xIIjvr+DFbBZ3
+          CmZ39EKRwhJxfGBA7nKbC4fFTQpR9GQD6SBR5kz8J6nIzeywJ4KQQEoICb9kwa0y4us0D
+          efxej72cEI31FXGeV9Hm6YpaKSBL/Ko67rrBU2P8+kdqtI5mTKyj97yMwEMqPn6E2RkQZ
+          44l9OAOSJIYtHQyvdCfpoYhzojZRabpcKkgB1Lq///ysmRdDWA3CBTurIyR8zjJdGreaY
+          DYiWFen50tlAgRwewWgWEIqPnmEKYCGKLF5BAK49NQWkcr/2d+TQLcyE7IYWJtp1VEHnb
+          8t8gzvhwWcR0AKmxOMGO/TUuBw70nCl5FUl/lxBFVvlQS0eGM8ZcDvs3survIgjmHsyyI
+          6LGuB6Yh+Qbw+YmBxSsp75mm9D+v0mFtdxCgs9JMTPFI3d40CGhDbAXfCYHqTrh71pSCq
+          a+ZWtixKOqhmIY6T9QCyFvBPB2ozQbmfgIlrRcs5pcNzO/xQfGf8JDiIceG7nE=
+      password: !encrypted/pkcs1-oaep
+        - c3cKJlMVv6mXnkCPPVyfJ9Vra140TOZKIK041eaajHnqoxR+R2sI50PrvF3r0rqnCJ4hs
+          955XM9Idk5Y6urkkg5XAPDXLU7scBwN/WxO6KWadwtoxSFgn3sF/bctE55m18PZakUo3u
+          oB05pBRlS0NITf6PCvwi0CphJbJEayVsPuNGP2EqP5WJ8xOrRu48SiuOlF0UuTA05oCta
+          oYMG691bTt8EdDawaVpqtDcOcGEEqjXfizCoTiZhSYbtU8u86QXysdhKTFkPZiVd5kKiH
+          q3zKLH3DEjK2XdSv4vouarmgKFymJ1+1hfUdfR2zNiJDM7a1YjEkOKlC+MaTBbjaoL7TF
+          DfYgBkef10U+pp8VpM+zaU8/nJgeAn1rJzEm6IbYqW8Cd6N7IC1qLPU8GG1d0QtrYy7FP
+          xr/5aAtiGFQ9dyUuwqBgNGngu5RXKJdnXD0yaUQ2Ptju5fwUo/vnQId/K+L8KIOjjRd9h
+          SYsOer9caZOZ8Sin7udDzH/L/yFQQeu/HCZqWNtMJR49a2TvI31v75TtoY2Z2JhkEIGs7
+          PryaAxEZywk1xP701FLFsdIWPbpvu+TElNnbEc+dI6HXtdpV6hArHI1LY0qplLtNV7c/g
+          GRXIKFyn7yVMpdRMt9i+IncN2m/xskSIn4IOgcLbTD4giFDE2ZBdpEareD4kEA=
