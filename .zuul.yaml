@@ -35,7 +35,7 @@
     name: armada-operator-docker-build-gate-ubuntu_focal
     timeout: 3600
     run: tools/gate/playbooks/docker-image-build.yaml
-    nodeset: armada-single-node-focal
+    nodeset: armada-operator-single-node-focal
     vars:
       publish: false
       distro: ubuntu_focal
@@ -48,7 +48,7 @@
     name: armada-operator-docker-publish-ubuntu_focal
     timeout: 3600
     run: tools/gate/playbooks/docker-image-build.yaml
-    nodeset: armada-single-node-focal
+    nodeset: armada-operator-single-node-focal
     secrets:
       - airship_armada_operator_quay_creds
     vars:
