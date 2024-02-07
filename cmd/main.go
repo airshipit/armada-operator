@@ -35,7 +35,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	armadav1 "opendev.org/airship/armada-operator/api/v1"
-	"opendev.org/airship/armada-operator/internal/controller"
+	"opendev.org/airship/armada-operator/pkg/controller"
 	//+kubebuilder:scaffold:imports
 )
 

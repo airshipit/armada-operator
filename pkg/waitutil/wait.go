@@ -14,13 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package kube
+package waitutil
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"strconv"
 	"strings"
@@ -38,6 +37,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
+
+	armadav1 "opendev.org/airship/armada-operator/api/v1"
 )
 
 type StatusType string
@@ -61,12 +62,11 @@ const (
 
 // WaitOptions phase run command
 type WaitOptions struct {
-	RestConfig    rest.Config
+	RestConfig    *rest.Config
 	Namespace     string
 	LabelSelector string
 	ResourceType  string
 	Timeout       time.Duration
-	Out           io.Writer
 	MinReady      string
 	Logger        logr.Logger
 }
@@ -85,25 +85,25 @@ func getObjectStatus(obj interface{}, minReady *MinReady) Status {
 		return isDaemonSetReady(v, minReady)
 	case *appsv1.StatefulSet:
 		return isStatefulSetReady(v, minReady)
+	case *armadav1.ArmadaChart:
+		return isArmadaChartReady(v)
 	default:
-		return Status{Error, fmt.Sprintf("Unable to cast an object to any type %s\n", obj)}
+		return Status{Error, fmt.Sprintf("Unable to cast an object to any type %s", obj)}
 	}
 }
 
 func allMatch(logger logr.Logger, store cache.Store, minReady *MinReady, obj runtime.Object) (bool, error) {
-	logger.Info(fmt.Sprintf("verifying ready status for %d number of objects", len(store.List())))
 	for _, item := range store.List() {
 		if obj != nil && item == obj {
-			logger.Info(fmt.Sprintf("Skipping the item as status is already computed"))
 			continue
 		}
 		status := getObjectStatus(item, minReady)
-		logger.Info(fmt.Sprintf("object %T status computed: %s %s\n", item, status.StatusType, status.Msg))
+		logger.Info(fmt.Sprintf("object %T status computed: %s %s", item, status.StatusType, status.Msg))
 		if status.StatusType != Ready && status.StatusType != Skipped {
 			return false, nil
 		}
 	}
-	logger.Info("all objects are ready\n")
+	logger.Info("all objects are ready")
 	return true, nil
 }
 
@@ -123,6 +123,17 @@ func processEvent(logger logr.Logger, event watch.Event, minReady *MinReady) (St
 	status := getObjectStatus(event.Object, minReady)
 	logger.Info(fmt.Sprintf("object type: %T, status: %s", event.Object, status.Msg))
 	return status.StatusType, nil
+}
+
+func isArmadaChartReady(ac *armadav1.ArmadaChart) Status {
+	if ac.Status.ObservedGeneration == ac.Generation {
+		for _, cond := range ac.Status.Conditions {
+			if cond.Type == "Ready" && cond.Status == "True" {
+				return Status{Ready, fmt.Sprintf("armadachart %s ready", ac.GetName())}
+			}
+		}
+	}
+	return Status{Unready, fmt.Sprintf("Waiting for armadachart %s to be ready", ac.GetName())}
 }
 
 func isPodReady(pod *corev1.Pod) Status {
@@ -174,7 +185,7 @@ func isDeploymentReady(deployment *appsv1.Deployment, minReady *MinReady) Status
 	if gen <= observed {
 		for _, cond := range status.Conditions {
 			if cond.Type == "Progressing" && cond.Reason == "ProgressDeadlineExceeded" {
-				return Status{Unready, fmt.Sprintf("Deployment %s exceeded its progress deadline\n", name)}
+				return Status{Unready, fmt.Sprintf("Deployment %s exceeded its progress deadline", name)}
 			}
 		}
 		replicas := int32(0)
@@ -185,12 +196,12 @@ func isDeploymentReady(deployment *appsv1.Deployment, minReady *MinReady) Status
 		available := status.AvailableReplicas
 		if updated < replicas {
 			return Status{Unready, fmt.Sprintf("Waiting for deployment %s rollout to finish: %d"+
-				" out of %d new replicas have been updated...\n", name, updated, replicas)}
+				" out of %d new replicas have been updated...", name, updated, replicas)}
 		}
 		if replicas > updated {
 			pending := replicas - updated
 			return Status{Unready, fmt.Sprintf("Waiting for deployment %s rollout to finish: %d old "+
-				"replicas are pending termination...\n", name, pending)}
+				"replicas are pending termination...", name, pending)}
 		}
 
 		if minReady.Percent {
@@ -199,13 +210,13 @@ func isDeploymentReady(deployment *appsv1.Deployment, minReady *MinReady) Status
 
 		if available < minReady.int32 {
 			return Status{Unready, fmt.Sprintf("Waiting for deployment %s rollout to finish: %d of %d "+
-				"updated replicas are available, with min_ready=%d\n", name, available, updated, minReady.int32)}
+				"updated replicas are available, with min_ready=%d", name, available, updated, minReady.int32)}
 		}
 
-		return Status{Ready, fmt.Sprintf("deployment %s successfully rolled out\n", name)}
+		return Status{Ready, fmt.Sprintf("deployment %s successfully rolled out", name)}
 	}
 
-	return Status{Unready, fmt.Sprintf("Waiting for deployment %s spec update to be observed...\n", name)}
+	return Status{Unready, fmt.Sprintf("Waiting for deployment %s spec update to be observed...", name)}
 }
 
 func isDaemonSetReady(daemonSet *appsv1.DaemonSet, minReady *MinReady) Status {
@@ -302,6 +313,10 @@ func hasOwner(ometa *metav1.ObjectMeta, kind string) bool {
 }
 
 func getClient(resource string, config *rest.Config) (rest.Interface, error) {
+	if resource == "armadacharts" {
+		return armadav1.NewForConfig(config)
+	}
+
 	cs, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -337,9 +352,9 @@ func getMinReady(minReady string) (*MinReady, error) {
 }
 
 func (c *WaitOptions) Wait(parent context.Context) error {
-	c.Logger.Info(fmt.Sprintf("armada-operator wait , namespace %s labels %s type %s timeout %s", c.Namespace, c.LabelSelector, c.ResourceType, c.Timeout))
+	c.Logger.Info(fmt.Sprintf("starting wait for resources: namespace %s labels %s type %s timeout %s", c.Namespace, c.LabelSelector, c.ResourceType, c.Timeout))
 
-	clientSet, err := getClient(c.ResourceType, &c.RestConfig)
+	clientSet, err := getClient(c.ResourceType, c.RestConfig)
 	if err != nil {
 		return err
 	}
@@ -349,7 +364,6 @@ func (c *WaitOptions) Wait(parent context.Context) error {
 
 	lw := cache.NewFilteredListWatchFromClient(clientSet, c.ResourceType, c.Namespace, func(options *metav1.ListOptions) {
 		options.LabelSelector = c.LabelSelector
-		c.Logger.Info(fmt.Sprintf("Label selector applied %s", options))
 	})
 
 	minReady, err := getMinReady(c.MinReady)
@@ -363,7 +377,7 @@ func (c *WaitOptions) Wait(parent context.Context) error {
 		cacheStore = store
 		c.Logger.Info(fmt.Sprintf("number of objects to watch: %d", len(store.List())))
 		if len(store.List()) == 0 {
-			c.Logger.Info(fmt.Sprintf("Skipping non-required wait, no resources found.\n"))
+			c.Logger.Info(fmt.Sprintf("Skipping non-required wait, no resources found"))
 			return true, nil
 		}
 		return allMatch(c.Logger, cacheStore, minReady, nil)

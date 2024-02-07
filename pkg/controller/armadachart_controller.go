@@ -47,8 +47,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	armadav1 "opendev.org/airship/armada-operator/api/v1"
-	"opendev.org/airship/armada-operator/internal/kube"
-	"opendev.org/airship/armada-operator/internal/runner"
+	"opendev.org/airship/armada-operator/pkg/kube"
+	"opendev.org/airship/armada-operator/pkg/runner"
+	"opendev.org/airship/armada-operator/pkg/waitutil"
 )
 
 // ArmadaChartReconciler reconciles a ArmadaChart object
@@ -276,8 +277,8 @@ func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.C
 			}
 		}
 
-		opts := kube.WaitOptions{
-			RestConfig:    *restCfg,
+		opts := waitutil.WaitOptions{
+			RestConfig:    restCfg,
 			Namespace:     hr.Spec.Namespace,
 			LabelSelector: labelSelector,
 			ResourceType:  fmt.Sprintf("%ss", res.Type),
@@ -408,7 +409,7 @@ func isUpdateRequired(ctx context.Context, release *release.Release, chrt *chart
 	//	return true
 
 	case !cmp.Equal(release.Config, vals.AsMap(), cmpopts.EquateEmpty()):
-		log.Info("There are CHART VALUES diffs")
+		log.Info("There are chart values diffs found")
 		log.Info(cmp.Diff(release.Config, vals.AsMap(), cmpopts.EquateEmpty()))
 		return true
 	}
