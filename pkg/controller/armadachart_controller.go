@@ -129,10 +129,10 @@ func (r *ArmadaChartReconciler) reconcile(ctx context.Context, ac armadav1.Armad
 	// Prepare values
 	var vals map[string]interface{}
 	if ac.Spec.Values != nil {
-		var vals_err error
-		vals, vals_err = chartutil.ReadValues(ac.Spec.Values.Raw)
-		if vals_err != nil {
-			return armadav1.ArmadaChartNotReady(ac, "InitFailed", vals_err.Error()), ctrl.Result{}, vals_err
+		var valsErr error
+		vals, valsErr = chartutil.ReadValues(ac.Spec.Values.Raw)
+		if valsErr != nil {
+			return armadav1.ArmadaChartNotReady(ac, "InitFailed", valsErr.Error()), ctrl.Result{}, valsErr
 		}
 	}
 	// Load chart from artifact
@@ -154,6 +154,10 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 	if err != nil {
 		return armadav1.ArmadaChartNotReady(ac, "InitFailed", err.Error()), err
 	}
+	restCfg, err := gettr.ToRESTConfig()
+	if err != nil {
+		return armadav1.ArmadaChartNotReady(ac, "InitFailed", err.Error()), err
+	}
 
 	run, err := runner.NewRunner(gettr, ac.Namespace, log)
 	if err != nil {
@@ -167,24 +171,19 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 		return armadav1.ArmadaChartNotReady(ac, "GetLastReleaseFailed", "failed to get last release revision"), err
 	}
 
-	testRel := func() (armadav1.ArmadaChart, error) {
-		if ac.Spec.Test.Enabled && !ac.Status.Tested {
-			log.Info("performing tests")
-			rel, err = run.Test(ac)
-			if err != nil {
-				return armadav1.ArmadaChartNotReady(ac, "TestFailed", err.Error()), err
-			}
-		}
-		return armadav1.ArmadaChartReady(ac), err
-	}
-
 	if rel == nil {
 		log.Info("helm install has started")
 		rel, err = run.Install(ctx, ac, chrt, vals)
 	} else {
+		ac.Status.HelmStatus = string(rel.Info.Status)
+		if updateStatusErr := r.patchStatus(ctx, &ac); updateStatusErr != nil {
+			log.Error(updateStatusErr, "unable to update status after helm status update")
+			return armadav1.ArmadaChartNotReady(ac, "UpdateStatusFailed", updateStatusErr.Error()), updateStatusErr
+		}
+
 		if rel.Info.Status == release.StatusDeployed && !isUpdateRequired(ctx, rel, chrt, vals) {
 			log.Info("no updates found, skipping upgrade")
-			return testRel()
+			return r.finalizeRelease(ctx, run, restCfg, ac)
 		}
 
 		if rel.Info.Status.IsPending() {
@@ -221,24 +220,35 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 		err = fmt.Errorf("failed to install/upgrade helm release: %s", err.Error())
 		return armadav1.ArmadaChartNotReady(ac, "InstallUpgradeFailed", err.Error()), err
 	}
-
-	if ac.Spec.Wait.Timeout > 0 && len(ac.Spec.Wait.Labels) > 0 {
-		log.Info("preparing to wait resources")
-		resCfg, err := gettr.ToRESTConfig()
-		if err != nil {
-			return armadav1.ArmadaChartNotReady(ac, "WaitFailed", err.Error()), err
-		}
-		err = r.waitRelease(ctx, resCfg, ac)
-		if err != nil {
-			return armadav1.ArmadaChartNotReady(ac, "WaitFailed", err.Error()), err
-		}
+	ac.Status.HelmStatus = string(rel.Info.Status)
+	if err := r.patchStatus(ctx, &ac); err != nil {
+		log.Error(err, "unable to update armadachart status")
 	}
 
-	return testRel()
+	return r.finalizeRelease(ctx, run, restCfg, ac)
 }
 
-func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.Config, hr armadav1.ArmadaChart) error {
+func (r *ArmadaChartReconciler) finalizeRelease(ctx context.Context, run *runner.Runner, restCfg *rest.Config, hr armadav1.ArmadaChart) (armadav1.ArmadaChart, error) {
+	hr, err := r.waitRelease(ctx, restCfg, hr)
+	if err != nil {
+		return hr, err
+	}
+
+	return r.testRelease(ctx, run, hr)
+}
+
+func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.Config, hr armadav1.ArmadaChart) (armadav1.ArmadaChart, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	if hr.Status.WaitCompleted {
+		log.Info("wait has been already completed")
+		return hr, nil
+	}
+
+	if hr.Spec.Wait.Timeout == 0 {
+		log.Info("No Chart timeout specified, using default 900s")
+		hr.Spec.Wait.Timeout = 900
+	}
 
 	if hr.Spec.Wait.ArmadaChartWaitResources == nil {
 		log.Info(fmt.Sprintf("there are no explicitly defined resources to wait: %s, using default ones", hr.Name))
@@ -288,12 +298,28 @@ func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.C
 		}
 		err := opts.Wait(ctx)
 		if err != nil {
-			return err
+			return hr, err
 		}
 	}
 
 	log.Info("all resources are ready")
-	return nil
+	hr.Status.WaitCompleted = true
+	if err := r.patchStatus(ctx, &hr); err != nil {
+		return hr, err
+	}
+
+	return hr, nil
+}
+
+func (r *ArmadaChartReconciler) testRelease(ctx context.Context, run *runner.Runner, ac armadav1.ArmadaChart) (armadav1.ArmadaChart, error) {
+	log := ctrl.LoggerFrom(ctx)
+	if ac.Spec.Test.Enabled && !ac.Status.Tested {
+		log.Info("performing tests")
+		if _, err := run.Test(ac); err != nil {
+			return armadav1.ArmadaChartNotReady(ac, "TestFailed", err.Error()), err
+		}
+	}
+	return armadav1.ArmadaChartReady(ac), nil
 }
 
 // loadHelmChart attempts to download the artifact from the provided source,
@@ -372,6 +398,7 @@ func (r *ArmadaChartReconciler) reconcileDelete(ctx context.Context, ac *armadav
 
 	// Remove our finalizer from the list and update it.
 	controllerutil.RemoveFinalizer(ac, armadav1.ArmadaChartFinalizer)
+	ac.Status.HelmStatus = string(release.StatusUninstalled)
 	if err := r.Update(ctx, ac); err != nil {
 		return ctrl.Result{}, err
 	}

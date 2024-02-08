@@ -172,10 +172,19 @@ type ArmadaChartStatus struct {
 	// +optional
 	UpgradeFailures int64 `json:"upgradeFailures,omitempty"`
 
+	// HelmStatus describes the status of helm release
+	// +optional
+	HelmStatus string `json:"helmStatus,omitempty"`
+
 	// Tested is the bool value whether the Helm Release was successfully
 	// tested or not.
 	// +optional
 	Tested bool `json:"tested,omitempty"`
+
+	// WaitCompleted is the bool value whether the Helm Release resources were
+	// waited for or not.
+	// +optional
+	WaitCompleted bool `json:"waitCompleted,omitempty"`
 }
 
 // ArmadaChartProgressing resets any failures and registers progress toward
@@ -191,7 +200,9 @@ func ArmadaChartProgressing(ac ArmadaChart) ArmadaChart {
 	}
 	apimeta.SetStatusCondition(ac.GetStatusConditions(), newCondition)
 	resetFailureCounts(&ac)
+	resetWaitCompleted(&ac)
 	resetTested(&ac)
+	ac.Status.HelmStatus = "Unknown"
 	return ac
 }
 
@@ -238,6 +249,14 @@ func setTested(hr *ArmadaChart) {
 	hr.Status.Tested = true
 }
 
+func resetWaitCompleted(hr *ArmadaChart) {
+	hr.Status.WaitCompleted = false
+}
+
+func setWaitCompleted(hr *ArmadaChart) {
+	hr.Status.WaitCompleted = true
+}
+
 func NewForConfigOrDie(c *rest.Config) *rest.RESTClient {
 	cs, err := NewForConfig(c)
 	if err != nil {
@@ -280,6 +299,13 @@ func setConfigDefaults(config *rest.Config) error {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Namespace",type=string,JSONPath=`.metadata.namespace`
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].message`,priority=10
+// +kubebuilder:printcolumn:name="Helm Status",type=string,JSONPath=`.status.helmStatus`
+// +kubebuilder:printcolumn:name="Wait Completed",type=boolean,JSONPath=`.status.waitCompleted`
+// +kubebuilder:printcolumn:name="Tested",type=boolean,JSONPath=`.status.tested`
 
 // ArmadaChart is the Schema for the armadacharts API
 type ArmadaChart struct {
