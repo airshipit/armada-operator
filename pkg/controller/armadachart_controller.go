@@ -189,6 +189,9 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 		if rel.Info.Status.IsPending() {
 			log.Info("warning: release in pending state, unlocking")
 			rel.SetStatus(release.StatusFailed, fmt.Sprintf("release unlocked from stale state"))
+			if err = run.UpdateReleaseStatus(rel); err != nil {
+				return armadav1.ArmadaChartNotReady(ac, "UpdateHelmStatusFailed", err.Error()), err
+			}
 		} else {
 			for _, delRes := range ac.Spec.Upgrade.PreUpgrade.Delete {
 				log.Info(fmt.Sprintf("deleting all %ss in %s ns with labels %v", delRes.Type, ac.Spec.Namespace, delRes.Labels))
@@ -221,6 +224,7 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 		return armadav1.ArmadaChartNotReady(ac, "InstallUpgradeFailed", err.Error()), err
 	}
 	ac.Status.HelmStatus = string(rel.Info.Status)
+	ac.Status.LastAppliedChartSource = ac.Spec.Source.Location
 	if err := r.patchStatus(ctx, &ac); err != nil {
 		log.Error(err, "unable to update armadachart status")
 	}
@@ -241,7 +245,6 @@ func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.C
 	log := ctrl.LoggerFrom(ctx)
 
 	if hr.Status.WaitCompleted {
-		log.Info("wait has been already completed")
 		return hr, nil
 	}
 
@@ -429,11 +432,6 @@ func isUpdateRequired(ctx context.Context, release *release.Release, chrt *chart
 		log.Info("There are chart template diffs found")
 		log.Info(cmp.Diff(release.Chart.Templates, chrt.Templates))
 		return true
-
-	//case !cmp.Equal(release.Chart.Values, chrt.Values, cmpopts.EquateEmpty()):
-	//	log.Info("There are CHART DEF VALUES diffs")
-	//	log.Info(cmp.Diff(release.Chart.Values, chrt.Values, cmpopts.EquateEmpty()))
-	//	return true
 
 	case !cmp.Equal(release.Config, vals.AsMap(), cmpopts.EquateEmpty()):
 		log.Info("There are chart values diffs found")

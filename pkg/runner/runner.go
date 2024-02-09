@@ -157,6 +157,11 @@ func (r *Runner) ObserveLastRelease(ac armadav1.ArmadaChart) (*release.Release, 
 	return rel, err
 }
 
+// UpdateReleaseStatus sets the new status for release
+func (r *Runner) UpdateReleaseStatus(rel *release.Release) error {
+	return r.config.Releases.Update(rel)
+}
+
 func wrapActionErr(log *LogBuffer, err error) error {
 	if err == nil {
 		return err

@@ -120,6 +120,11 @@ func processEvent(logger logr.Logger, event watch.Event, minReady *MinReady) (St
 		return Error, errors.New(fmt.Sprintf("resource %s: got error event %s", metaObj.GetName(), event.Object))
 	}
 
+	if event.Type == "DELETED" {
+		logger.Info("Resource %s: removed from tracking", metaObj.GetName())
+		return Skipped, nil
+	}
+
 	status := getObjectStatus(event.Object, minReady)
 	logger.Info(fmt.Sprintf("object type: %T, status: %s", event.Object, status.Msg))
 	return status.StatusType, nil
@@ -384,7 +389,7 @@ func (c *WaitOptions) Wait(parent context.Context) error {
 	}
 
 	cfu := func(event watch.Event) (bool, error) {
-		if ready, err := processEvent(c.Logger, event, minReady); ready != Ready || err != nil {
+		if ready, err := processEvent(c.Logger, event, minReady); (ready != Ready && ready != Skipped) || err != nil {
 			return false, err
 		}
 

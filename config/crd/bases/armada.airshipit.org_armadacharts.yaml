@@ -15,28 +15,25 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .metadata.namespace
-      name: Namespace
-      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
-      type: boolean
-    - jsonPath: .status.conditions[?(@.type=="Ready")].message
-      name: Message
-      priority: 10
       type: string
     - jsonPath: .status.helmStatus
       name: Helm Status
       type: string
     - jsonPath: .status.waitCompleted
-      name: Wait Completed
+      name: Wait Done
       type: boolean
     - jsonPath: .status.tested
       name: Tested
       type: boolean
+    - jsonPath: .status.conditions[?(@.type=="Ready")].message
+      name: Message
+      priority: 10
+      type: string
     name: v1
     schema:
       openAPIV3Schema:
@@ -219,10 +216,6 @@ spec:
                   the latest desired state. It is reset after a successful reconciliation.
                 format: int64
                 type: integer
-              helmChart:
-                description: HelmChart is the namespaced name of the HelmChart resource
-                  created by the controller for the ArmadaChart.
-                type: string
               helmStatus:
                 description: HelmStatus describes the status of helm release
                 type: string
@@ -231,22 +224,14 @@ spec:
                   the latest desired state. It is reset after a successful reconciliation.
                 format: int64
                 type: integer
-              lastAppliedRevision:
-                description: LastAppliedRevision is the revision of the last successfully
-                  applied source.
-                type: string
-              lastAttemptedRevision:
-                description: LastAttemptedRevision is the revision of the last reconciliation
-                  attempt.
+              lastAttemptedChartSource:
+                description: LastAppliedChartSource is the URL of chart of the last
+                  reconciliation attempt
                 type: string
               lastAttemptedValuesChecksum:
-                description: LastAttemptedValuesChecksum is the SHA1 checksum of the
+                description: LastAppliedValuesChecksum is the SHA1 checksum of the
                   values of the last reconciliation attempt.
                 type: string
-              lastReleaseRevision:
-                description: LastReleaseRevision is the revision of the last successful
-                  Helm release.
-                type: integer
               observedGeneration:
                 description: ObservedGeneration is the last observed generation.
                 format: int64

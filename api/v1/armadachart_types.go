@@ -135,27 +135,14 @@ type ArmadaChartStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// LastAppliedRevision is the revision of the last successfully applied source.
-	// +optional
-	LastAppliedRevision string `json:"lastAppliedRevision,omitempty"`
-
-	// LastAttemptedRevision is the revision of the last reconciliation attempt.
-	// +optional
-	LastAttemptedRevision string `json:"lastAttemptedRevision,omitempty"`
-
-	// LastAttemptedValuesChecksum is the SHA1 checksum of the values of the last
+	// LastAppliedValuesChecksum is the SHA1 checksum of the values of the last
 	// reconciliation attempt.
 	// +optional
-	LastAttemptedValuesChecksum string `json:"lastAttemptedValuesChecksum,omitempty"`
+	LastAppliedValuesChecksum string `json:"lastAttemptedValuesChecksum,omitempty"`
 
-	// LastReleaseRevision is the revision of the last successful Helm release.
+	// LastAppliedChartSource is the URL of chart of the last reconciliation attempt
 	// +optional
-	LastReleaseRevision int `json:"lastReleaseRevision,omitempty"`
-
-	// HelmChart is the namespaced name of the HelmChart resource created by
-	// the controller for the ArmadaChart.
-	// +optional
-	HelmChart string `json:"helmChart,omitempty"`
+	LastAppliedChartSource string `json:"lastAttemptedChartSource,omitempty"`
 
 	// Failures is the reconciliation failure count against the latest desired
 	// state. It is reset after a successful reconciliation.
@@ -229,7 +216,6 @@ func ArmadaChartReady(ac ArmadaChart) ArmadaChart {
 		Message: "Release reconciliation succeeded",
 	}
 	apimeta.SetStatusCondition(ac.GetStatusConditions(), newCondition)
-	ac.Status.LastAppliedRevision = ac.Status.LastAttemptedRevision
 	resetFailureCounts(&ac)
 	setTested(&ac)
 	return ac
@@ -299,13 +285,12 @@ func setConfigDefaults(config *rest.Config) error {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Namespace",type=string,JSONPath=`.metadata.namespace`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
-// +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].message`,priority=10
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Helm Status",type=string,JSONPath=`.status.helmStatus`
-// +kubebuilder:printcolumn:name="Wait Completed",type=boolean,JSONPath=`.status.waitCompleted`
+// +kubebuilder:printcolumn:name="Wait Done",type=boolean,JSONPath=`.status.waitCompleted`
 // +kubebuilder:printcolumn:name="Tested",type=boolean,JSONPath=`.status.tested`
+// +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].message`,priority=10
 
 // ArmadaChart is the Schema for the armadacharts API
 type ArmadaChart struct {

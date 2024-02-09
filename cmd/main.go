@@ -69,7 +69,7 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	managerLogger := zap.New()
+	managerLogger := zap.New(zap.ConsoleEncoder())
 	ctrl.SetLogger(managerLogger)
 	klog.SetLoggerWithOptions(managerLogger.WithName("runtime"), klog.ContextualLogger(true))
 
