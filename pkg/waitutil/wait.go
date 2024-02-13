@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"math"
 	"strconv"
 	"strings"
@@ -98,12 +99,17 @@ func allMatch(logger logr.Logger, store cache.Store, minReady *MinReady, obj run
 			continue
 		}
 		status := getObjectStatus(item, minReady)
-		logger.Info(fmt.Sprintf("object %T status computed: %s %s", item, status.StatusType, status.Msg))
 		if status.StatusType != Ready && status.StatusType != Skipped {
+			metaObj, err := meta.Accessor(item)
+			if err != nil {
+				logger.Error(err, "Unable to get meta info for object: %T", item)
+			} else {
+				logger.Info(fmt.Sprintf("Continuing to wait: resource %s/%s is %s: %s", metaObj.GetNamespace(), metaObj.GetName(), status.StatusType, status.Msg))
+			}
 			return false, nil
 		}
 	}
-	logger.Info("all objects are ready")
+	logger.Info("All resources are ready!")
 	return true, nil
 }
 
@@ -112,8 +118,7 @@ func processEvent(logger logr.Logger, event watch.Event, minReady *MinReady) (St
 	if err != nil {
 		return Error, err
 	}
-	metaObj.GetResourceVersion()
-	logger.Info(fmt.Sprintf("watch event: type=%s, name=%s, namespace=%s, resource_ver %s",
+	logger.Info(fmt.Sprintf("Watch event: type=%s, name=%s, namespace=%s, resource_ver %s",
 		event.Type, metaObj.GetName(), metaObj.GetNamespace(), metaObj.GetResourceVersion()))
 
 	if event.Type == "ERROR" {
@@ -121,12 +126,12 @@ func processEvent(logger logr.Logger, event watch.Event, minReady *MinReady) (St
 	}
 
 	if event.Type == "DELETED" {
-		logger.Info("Resource %s: removed from tracking", metaObj.GetName())
+		logger.Info("Resource %s/%s: removed from tracking", metaObj.GetNamespace(), metaObj.GetName())
 		return Skipped, nil
 	}
 
 	status := getObjectStatus(event.Object, minReady)
-	logger.Info(fmt.Sprintf("object type: %T, status: %s", event.Object, status.Msg))
+	logger.Info(fmt.Sprintf("Resource %s/%s is %s: %s", metaObj.GetNamespace(), metaObj.GetName(), status.StatusType, status.Msg))
 	return status.StatusType, nil
 }
 
@@ -357,7 +362,7 @@ func getMinReady(minReady string) (*MinReady, error) {
 }
 
 func (c *WaitOptions) Wait(parent context.Context) error {
-	c.Logger.Info(fmt.Sprintf("starting wait for resources: namespace %s labels %s type %s timeout %s", c.Namespace, c.LabelSelector, c.ResourceType, c.Timeout))
+	c.Logger.Info(fmt.Sprintf("Starting to wait on: namespace=%s, resource type=%s, label selector=(%s), timeout=%s", c.Namespace, c.ResourceType, c.LabelSelector, c.Timeout))
 
 	clientSet, err := getClient(c.ResourceType, c.RestConfig)
 	if err != nil {
@@ -380,11 +385,11 @@ func (c *WaitOptions) Wait(parent context.Context) error {
 
 	cpu := func(store cache.Store) (bool, error) {
 		cacheStore = store
-		c.Logger.Info(fmt.Sprintf("number of objects to watch: %d", len(store.List())))
 		if len(store.List()) == 0 {
 			c.Logger.Info(fmt.Sprintf("Skipping non-required wait, no resources found"))
 			return true, nil
 		}
+		c.Logger.Info(fmt.Sprintf("number of objects to watch: %d", len(store.List())))
 		return allMatch(c.Logger, cacheStore, minReady, nil)
 	}
 
@@ -397,5 +402,21 @@ func (c *WaitOptions) Wait(parent context.Context) error {
 	}
 
 	_, err = watchtools.UntilWithSync(ctx, lw, nil, cpu, cfu)
+	if wait.Interrupted(err) {
+		var failedItems []string
+		for _, item := range cacheStore.List() {
+			status := getObjectStatus(item, minReady)
+			if status.StatusType != Ready && status.StatusType != Skipped {
+				metaObj, err := meta.Accessor(item)
+				if err != nil {
+					c.Logger.Error(err, "Unable to get meta info for unready object: %T", item)
+				} else {
+					failedItems = append(failedItems, fmt.Sprintf("%s %s/%s", item, metaObj.GetNamespace(), metaObj.GetName()))
+				}
+			}
+		}
+		c.Logger.Info("The following items were not ready: %s", failedItems)
+	}
+
 	return err
 }
