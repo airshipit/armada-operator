@@ -47,6 +47,13 @@ func WithPersistent(persist bool) Option {
 	}
 }
 
+// WithWarningHandler sets warning handler fn for REST mapper
+func WithWarningHandler(wh func(string)) Option {
+	return func(c *MemoryRESTClientGetter) {
+		c.warningHandler = wh
+	}
+}
+
 // MemoryRESTClientGetter is a resource.RESTClientGetter that uses an
 // in-memory REST config, REST mapper, and discovery client.
 // If configured, the client config, REST mapper, and discovery client are
@@ -71,6 +78,8 @@ type MemoryRESTClientGetter struct {
 
 	clientCfg   clientcmd.ClientConfig
 	clientCfgMu sync.Mutex
+
+	warningHandler func(string)
 }
 
 // setDefaults sets the default values for the MemoryRESTClientGetter.
@@ -176,7 +185,7 @@ func (c *MemoryRESTClientGetter) toRESTMapper() (meta.RESTMapper, error) {
 		return nil, err
 	}
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(discoveryClient)
-	return restmapper.NewShortcutExpander(mapper, discoveryClient), nil
+	return restmapper.NewShortcutExpander(mapper, discoveryClient, c.warningHandler), nil
 }
 
 // ToRawKubeConfigLoader returns a clientcmd.ClientConfig using

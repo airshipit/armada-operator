@@ -21,6 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"net/http"
 	"os"
 	"time"
@@ -195,22 +198,36 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 		} else {
 			for _, delRes := range ac.Spec.Upgrade.PreUpgrade.Delete {
 				log.Info(fmt.Sprintf("deleting all %ss in %s ns with labels %v", delRes.Type, ac.Spec.Namespace, delRes.Labels))
+				obj, objList := new(client.Object), new(client.ObjectList)
 				switch delRes.Type {
 				case "", "job":
-					err = r.DeleteAllOf(ctx, &batchv1.Job{}, client.MatchingLabels(delRes.Labels), client.InNamespace(ac.Spec.Namespace))
-					if err != nil {
-						return armadav1.ArmadaChartNotReady(ac, "DeleteFailed", err.Error()), err
-					}
+					*obj, *objList = &batchv1.Job{}, &batchv1.JobList{}
 				case "pod":
-					err = r.DeleteAllOf(ctx, &corev1.Pod{}, client.MatchingLabels(delRes.Labels), client.InNamespace(ac.Spec.Namespace))
-					if err != nil {
-						return armadav1.ArmadaChartNotReady(ac, "DeleteFailed", err.Error()), err
-					}
+					*obj, *objList = &corev1.Pod{}, &corev1.PodList{}
 				case "cronjob":
-					err = r.DeleteAllOf(ctx, &batchv1.CronJob{}, client.MatchingLabels(delRes.Labels), client.InNamespace(ac.Spec.Namespace))
-					if err != nil {
-						return armadav1.ArmadaChartNotReady(ac, "DeleteFailed", err.Error()), err
+					*obj, *objList = &batchv1.CronJob{}, &batchv1.CronJobList{}
+				}
+
+				err = r.DeleteAllOf(ctx, *obj, client.MatchingLabels(delRes.Labels), client.InNamespace(ac.Spec.Namespace), client.PropagationPolicy(v1.DeletePropagationForeground))
+				if err != nil {
+					return armadav1.ArmadaChartNotReady(ac, "DeleteFailed", err.Error()), err
+				}
+				if err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 30*time.Second, true, func(ctx context.Context) (done bool, err error) {
+					if err := r.List(ctx, *objList, client.MatchingLabels(delRes.Labels), client.InNamespace(ac.Spec.Namespace)); err != nil {
+						return false, err
 					}
+					l, err := apimeta.ExtractList(*objList)
+					if err != nil {
+						return false, err
+					}
+					if len(l) > 0 {
+						log.Info(fmt.Sprintf("%d %ss still have found in %s ns with labels %v", len(l), delRes.Type, ac.Spec.Namespace, delRes.Labels))
+						return false, nil
+					}
+					log.Info(fmt.Sprintf("no %ss have found in %s ns with labels %v, pre update completed", delRes.Type, ac.Spec.Namespace, delRes.Labels))
+					return true, nil
+				}); err != nil {
+					return armadav1.ArmadaChartNotReady(ac, "PreUpdateFailed", err.Error()), err
 				}
 			}
 		}
@@ -360,10 +377,14 @@ func (r *ArmadaChartReconciler) loadHelmChart(ctx context.Context, hr armadav1.A
 	return loader.Load(f.Name())
 }
 
-func (r *ArmadaChartReconciler) buildRESTClientGetter(_ context.Context, hr armadav1.ArmadaChart) (genericclioptions.RESTClientGetter, error) {
+func (r *ArmadaChartReconciler) buildRESTClientGetter(ctx context.Context, hr armadav1.ArmadaChart) (genericclioptions.RESTClientGetter, error) {
+	log := ctrl.LoggerFrom(ctx)
 	opts := []kube.Option{
 		kube.WithNamespace(hr.Spec.Namespace),
 		kube.WithPersistent(true),
+		kube.WithWarningHandler(func(s string) {
+			log.Info(s)
+		}),
 	}
 
 	return kube.NewInClusterMemoryRESTClientGetter(opts...)
