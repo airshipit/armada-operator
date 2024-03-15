@@ -29,6 +29,13 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o ma
 # NOTE: distroless has been switched to alpine
 #FROM gcr.io/distroless/static:nonroot
 FROM ${FROM}
+
+# Install CA certificates
+RUN apt-get update && \
+    apt-get install -y ca-certificates
+# Update CA certificates
+RUN update-ca-certificates
+
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
