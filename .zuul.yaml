@@ -14,6 +14,7 @@
     check:
       jobs:
         - armada-operator-docker-build-gate-ubuntu_focal
+        - armada-operator-airskiff-deployment-focal
 
     gate:
       jobs:
@@ -30,6 +31,97 @@
       - name: primary
         label: ubuntu-focal
 
+- job:
+    name: armada-operator-base
+    abstract: true
+    roles:
+      - zuul: openstack/openstack-helm-infra
+      - zuul: zuul/zuul-jobs
+    required-projects:
+      - name: openstack/openstack-helm
+      - name: openstack/openstack-helm-infra
+      - name: airship/treasuremap
+        override-checkout: v1.9
+    irrelevant-files: &irrelevant-files
+      - ^.*\.rst$
+      - ^doc/.*$
+      - ^etc/.*$
+      - ^releasenotes/.*$
+      - ^setup.cfg$
+      - ^deckhand/tests/unit/.*$
+    timeout: 10800
+    pre-run:
+      - tools/gate/playbooks/prepare-hosts.yaml
+      - tools/gate/playbooks/mount-volumes.yaml
+      - tools/gate/playbooks/deploy-env.yaml
+    run:
+      - tools/gate/playbooks/airship-run-scripts.yaml
+    post-run:
+      - tools/gate/playbooks/osh-infra-collect-logs.yaml
+    vars:
+      extra_volume:
+        size: 80G
+        type: Linux
+        mount_point: /opt/ext_vol
+      docker:
+        root_path: "/opt/ext_vol/docker"
+      containerd:
+        root_path: "/opt/ext_vol/containerd"
+      kubeadm:
+        pod_network_cidr: "10.244.0.0/24"
+        service_cidr: "10.96.0.0/16"
+      loopback_setup: true
+      loopback_device: /dev/loop100
+      loopback_image: "/opt/ext_vol/openstack-helm/ceph-loop.img"
+      ceph_osd_data_device: /dev/loop100
+      kube_version_repo: "v1.29"
+      # the list of k8s package versions are available here
+      # https://pkgs.k8s.io/core:/stable:/{{ kube_version_repo }}/deb/Packages
+      kube_version: "1.29.2-1.1"
+      calico_version: "v3.27.0"
+      coredns_version: "v1.11.1"
+      helm_version: "v3.13.2"
+      yq_version: "v4.6.0"
+      crictl_version: "v1.26.1"
+      zuul_osh_relative_path: ../../openstack/openstack-helm
+      zuul_osh_infra_relative_path: ../../openstack/openstack-helm-infra
+      zuul_treasuremap_relative_path: ../../airship/treasuremap
+      gate_scripts_relative_path: ../../openstack/openstack-helm-infra
+      run_helm_tests: "no"
+
+- job:
+    name: armada-operator-airskiff-deployment-focal
+    nodeset: treasuremap-airskiff-1node-ubuntu_focal
+    description: |
+      Deploy Memcached using Airskiff and submitted Armada-operator changes.
+    parent: armada-operator-base
+    vars:
+      site: airskiff
+      HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.13.2-linux-amd64.tar.gz
+      HTK_COMMIT: cfff60ec10a6c386f38db79bb9f59a552c2b032f
+      OSH_INFRA_COMMIT: cfff60ec10a6c386f38db79bb9f59a552c2b032f
+      OSH_COMMIT: 2d9457e34ca4200ed631466bd87569b0214c92e7
+      CLONE_ARMADA_OPERATOR: false
+      DISTRO: ubuntu_focal
+      DOCKER_REGISTRY: localhost:5000
+      MAKE_ARMADA_OPERATOR_IMAGES: true
+      USE_ARMADA_GO: true
+      gate_scripts_relative_path: ../../airship/treasuremap
+      gate_scripts:
+        - ./tools/deployment/airskiff/developer/000-prepare-k8s.sh
+        - ./tools/deployment/airskiff/developer/009-setup-apparmor.sh
+        - ./tools/deployment/airskiff/developer/000-clone-dependencies.sh
+        - ./tools/deployment/airskiff/developer/020-setup-client.sh
+        - ./tools/deployment/airskiff/developer/015-make-all-charts.sh
+        - ./tools/deployment/airskiff/developer/017-make-all-images.sh
+        - ./tools/deployment/airskiff/developer/025-start-artifactory.sh
+        - ./tools/deployment/airskiff/developer/026-reduce-site.sh
+        - ./tools/deployment/airskiff/developer/027-enable-armada-operator.sh
+        - ./tools/deployment/airskiff/developer/030-armada-bootstrap.sh
+        - ./tools/deployment/airskiff/developer/100-deploy-osh.sh
+        - ./tools/deployment/airskiff/common/os-env.sh
+        - ./tools/gate/wait-for-shipyard.sh
+    irrelevant-files: *irrelevant-files
 
 - job:
     name: armada-operator-docker-build-gate-ubuntu_focal
