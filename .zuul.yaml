@@ -40,7 +40,7 @@
     required-projects:
       - name: openstack/openstack-helm
       - name: openstack/openstack-helm-infra
-      - openstack/openstack-helm-plugin
+      - name: openstack/openstack-helm-plugin
       - name: airship/treasuremap
         override-checkout: v1.9
     irrelevant-files: &irrelevant-files
@@ -85,8 +85,10 @@
       helm_version: "v3.6.3"
       yq_version: "v4.6.0"
       crictl_version: "v1.26.1"
-      zuul_osh_infra_relative_path: ../openstack-helm-infra
-      gate_scripts_relative_path: ../openstack-helm-infra
+      zuul_osh_relative_path: ../../openstack/openstack-helm
+      zuul_osh_infra_relative_path: ../../openstack/openstack-helm-infra
+      zuul_treasuremap_relative_path: ../../airship/treasuremap
+      gate_scripts_relative_path: ../../openstack/openstack-helm-infra
       run_helm_tests: "no"
 
 - job:
@@ -97,10 +99,10 @@
     parent: armada-operator-base
     vars:
       site: airskiff
-      HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.13.2-linux-amd64.tar.gz
-      HTK_COMMIT: cfff60ec10a6c386f38db79bb9f59a552c2b032f
-      OSH_INFRA_COMMIT: cfff60ec10a6c386f38db79bb9f59a552c2b032f
-      OSH_COMMIT: 2d9457e34ca4200ed631466bd87569b0214c92e7
+      HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.14.2-linux-amd64.tar.gz
+      HTK_COMMIT: 05f2f45971abcf483189358d663e2b46c3fc2fe8
+      OSH_INFRA_COMMIT: 05f2f45971abcf483189358d663e2b46c3fc2fe8
+      OSH_COMMIT: 049e679939fbd3b0c659dd0977911b8dc3b5a015
       CLONE_ARMADA_OPERATOR: false
       DISTRO: ubuntu_focal
       DOCKER_REGISTRY: localhost:5000

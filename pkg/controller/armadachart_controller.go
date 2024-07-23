@@ -75,7 +75,7 @@ func (r *ArmadaChartReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	start := time.Now()
 	log := ctrl.LoggerFrom(ctx)
 
-	log.Info("reconciling has started")
+	log.Info("reconciliation started")
 
 	// Retrieve the custom resource
 	var ac armadav1.ArmadaChart
@@ -89,7 +89,7 @@ func (r *ArmadaChartReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		controllerutil.AddFinalizer(&ac, armadav1.ArmadaChartFinalizer)
 		if err := r.Patch(ctx, &ac, patch); err != nil {
 			log.Error(err, "unable to register finalizer")
-			return ctrl.Result{}, err
+			return requeueRequired(ac, ctrl.Result{}, err)
 		}
 	}
 
@@ -103,7 +103,7 @@ func (r *ArmadaChartReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	ac, result, err := r.reconcile(ctx, ac)
 	if updateStatusErr := r.patchStatus(ctx, &ac); updateStatusErr != nil {
 		log.Error(updateStatusErr, "unable to update status after reconciliation")
-		return ctrl.Result{Requeue: false}, updateStatusErr
+		return requeueRequired(ac, ctrl.Result{Requeue: false}, updateStatusErr)
 	}
 
 	// Log reconciliation duration
@@ -113,7 +113,7 @@ func (r *ArmadaChartReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	log.Info(durationMsg)
 
-	return result, err
+	return requeueRequired(ac, result, err)
 }
 
 func (r *ArmadaChartReconciler) reconcile(ctx context.Context, ac armadav1.ArmadaChart) (armadav1.ArmadaChart, ctrl.Result, error) {
@@ -231,9 +231,27 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 				}
 			}
 		}
+		if ac.Spec.Upgrade.PreUpgrade.Cleanup {
+			getter, err := r.buildRESTClientGetter(ctx, ac)
+			if err != nil {
+				return armadav1.ArmadaChartNotReady(ac, "DeleteHelmStatusFailed", err.Error()), err
+			}
+			run, err := runner.NewRunner(getter, ac.Spec.Namespace, ctrl.LoggerFrom(ctx))
+			if err != nil {
+				return armadav1.ArmadaChartNotReady(ac, "DeleteHelmStatusFailed", err.Error()), err
+			}
+			if err := run.Uninstall(ac); err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
+				return armadav1.ArmadaChartNotReady(ac, "DeleteHelmStatusFailed", err.Error()), err
+			}
+			log.Info("uninstalled Helm release for deleted resource")
 
-		log.Info("helm upgrade has started")
-		rel, err = run.Upgrade(ctx, ac, chrt, vals)
+			// Install action must be invoked
+			log.Info("helm install has started")
+			rel, err = run.Install(ctx, ac, chrt, vals)
+		} else {
+			log.Info("helm upgrade has started")
+			rel, err = run.Upgrade(ctx, ac, chrt, vals)
+		}
 	}
 
 	if err != nil {
@@ -461,4 +479,13 @@ func isUpdateRequired(ctx context.Context, release *release.Release, chrt *chart
 	}
 
 	return false
+}
+
+func requeueRequired(ac armadav1.ArmadaChart, res ctrl.Result, err error) (ctrl.Result, error) {
+	// We have to stop after 3 unsuccessful attempts on the same generation
+	if ac.Status.Failures > 3 {
+		return ctrl.Result{Requeue: false}, nil
+	}
+
+	return res, err
 }

@@ -104,7 +104,8 @@ type ArmadaChartUpgrade struct {
 }
 
 type ArmadaChartPreUpgrade struct {
-	Delete []ArmadaChartDeleteResource `json:"delete,omitempty"`
+	Cleanup bool                        `json:"cleanup,omitempty"`
+	Delete  []ArmadaChartDeleteResource `json:"delete,omitempty"`
 }
 
 // ArmadaChartDeleteResource defines the delete options of ArmadaChart
