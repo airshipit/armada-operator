@@ -40,6 +40,7 @@
     required-projects:
       - name: openstack/openstack-helm
       - name: openstack/openstack-helm-infra
+      - openstack/openstack-helm-plugin
       - name: airship/treasuremap
         override-checkout: v1.9
     irrelevant-files: &irrelevant-files
@@ -68,25 +69,24 @@
       containerd:
         root_path: "/opt/ext_vol/containerd"
       kubeadm:
-        pod_network_cidr: "10.244.0.0/24"
+        pod_network_cidr: "10.244.0.0/16"
         service_cidr: "10.96.0.0/16"
+      osh_plugin_repo: "{{ zuul.project.src_dir }}/../../openstack/openstack-helm-plugin"
       loopback_setup: true
       loopback_device: /dev/loop100
       loopback_image: "/opt/ext_vol/openstack-helm/ceph-loop.img"
       ceph_osd_data_device: /dev/loop100
       kube_version_repo: "v1.29"
-      # the list of k8s package versions are available here
-      # https://pkgs.k8s.io/core:/stable:/{{ kube_version_repo }}/deb/Packages
-      kube_version: "1.29.2-1.1"
+      kube_version: "1.29.5-1.1"
+      calico_setup: true
       calico_version: "v3.27.0"
-      coredns_version: "v1.11.1"
-      helm_version: "v3.13.2"
+      cilium_setup: false
+      cilium_version: "1.15.6"
+      helm_version: "v3.6.3"
       yq_version: "v4.6.0"
       crictl_version: "v1.26.1"
-      zuul_osh_relative_path: ../../openstack/openstack-helm
-      zuul_osh_infra_relative_path: ../../openstack/openstack-helm-infra
-      zuul_treasuremap_relative_path: ../../airship/treasuremap
-      gate_scripts_relative_path: ../../openstack/openstack-helm-infra
+      zuul_osh_infra_relative_path: ../openstack-helm-infra
+      gate_scripts_relative_path: ../openstack-helm-infra
       run_helm_tests: "no"
 
 - job:
