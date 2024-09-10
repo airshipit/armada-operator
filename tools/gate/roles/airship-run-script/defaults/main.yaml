@@ -16,17 +16,16 @@ kubeadm:
   pod_network_cidr: "10.244.0.0/24"
 osh_params:
   container_distro_name: ubuntu
-  container_distro_version: focal
+  container_distro_version: jammy
   # feature_gates:
 site: airskiff
-HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.13.2-linux-amd64.tar.gz
+HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.15.4-linux-amd64.tar.gz
 HTK_COMMIT: cfff60ec10a6c386f38db79bb9f59a552c2b032f
 OSH_INFRA_COMMIT: cfff60ec10a6c386f38db79bb9f59a552c2b032f
 OSH_COMMIT: 2d9457e34ca4200ed631466bd87569b0214c92e7
 COREDNS_VERSION: v1.11.1
-DISTRO: ubuntu_focal
+DISTRO: ubuntu_jammy
 DOCKER_REGISTRY: quay.io
-
 CLONE_ARMADA: true
 CLONE_ARMADA_GO: true
 CLONE_ARMADA_OPERATOR: true

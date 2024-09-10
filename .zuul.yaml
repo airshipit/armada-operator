@@ -13,24 +13,23 @@
 - project:
     check:
       jobs:
-        - armada-operator-docker-build-gate-ubuntu_focal
-        # disable for now until jammy jobs are configured
-        #- armada-operator-airskiff-deployment-focal
+        - armada-operator-docker-build-gate-ubuntu_jammy
+        - armada-operator-airskiff-deployment-jammy
 
     gate:
       jobs:
-        - armada-operator-docker-build-gate-ubuntu_focal
+        - armada-operator-docker-build-gate-ubuntu_jammy
 
     post:
       jobs:
-        - armada-operator-docker-publish-ubuntu_focal
+        - armada-operator-docker-publish-ubuntu_jammy
 
 
 - nodeset:
-    name: armada-operator-single-node-focal
+    name: armada-operator-single-node-jammy
     nodes:
       - name: primary
-        label: ubuntu-focal
+        label: ubuntu-jammy
 
 - job:
     name: armada-operator-base
@@ -53,6 +52,7 @@
       - ^deckhand/tests/unit/.*$
     timeout: 10800
     pre-run:
+      - tools/gate/playbooks/checkout-treasuremap-ref.yaml
       - tools/gate/playbooks/prepare-hosts.yaml
       - tools/gate/playbooks/mount-volumes.yaml
       - tools/gate/playbooks/deploy-env.yaml
@@ -61,6 +61,7 @@
     post-run:
       - tools/gate/playbooks/osh-infra-collect-logs.yaml
     vars:
+      treasuremap_ref: refs/changes/43/927643/7
       extra_volume:
         size: 80G
         type: Linux
@@ -77,15 +78,16 @@
       loopback_device: /dev/loop100
       loopback_image: "/opt/ext_vol/openstack-helm/ceph-loop.img"
       ceph_osd_data_device: /dev/loop100
-      kube_version_repo: "v1.29"
-      kube_version: "1.29.5-1.1"
+      kube_version_repo: "v1.30"
+      kube_version: "1.30.3-1.1"
       calico_setup: true
-      calico_version: "v3.27.0"
+      calico_version: "v3.27.4"
       cilium_setup: false
-      cilium_version: "1.15.6"
-      helm_version: "v3.6.3"
-      yq_version: "v4.6.0"
-      crictl_version: "v1.26.1"
+      cilium_version: "1.16.0"
+      flannel_setup: false
+      flannel_version: v0.25.4
+      helm_version: "v3.15.4"
+      crictl_version: "v1.30.1"
       zuul_osh_relative_path: ../../openstack/openstack-helm
       zuul_osh_infra_relative_path: ../../openstack/openstack-helm-infra
       zuul_treasuremap_relative_path: ../../airship/treasuremap
@@ -93,19 +95,19 @@
       run_helm_tests: "no"
 
 - job:
-    name: armada-operator-airskiff-deployment-focal
-    nodeset: treasuremap-airskiff-1node-ubuntu_focal
+    name: armada-operator-airskiff-deployment-jammy
+    nodeset: treasuremap-airskiff-1node-ubuntu_jammy
     description: |
       Deploy Memcached using Airskiff and submitted Armada-operator changes.
     parent: armada-operator-base
     vars:
       site: airskiff
-      HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.14.2-linux-amd64.tar.gz
-      HTK_COMMIT: 05f2f45971abcf483189358d663e2b46c3fc2fe8
-      OSH_INFRA_COMMIT: 05f2f45971abcf483189358d663e2b46c3fc2fe8
-      OSH_COMMIT: 049e679939fbd3b0c659dd0977911b8dc3b5a015
+      HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.15.4-linux-amd64.tar.gz
+      HTK_COMMIT: 43fd7143481b6ddda0dbd2f26bf6ec39a417b15b
+      OSH_INFRA_COMMIT: 43fd7143481b6ddda0dbd2f26bf6ec39a417b15b
+      OSH_COMMIT: 540df5cb0dbdaed63c202e2d6f2b7891062f8203
       CLONE_ARMADA_OPERATOR: false
-      DISTRO: ubuntu_focal
+      DISTRO: ubuntu_jammy
       DOCKER_REGISTRY: localhost:5000
       MAKE_ARMADA_OPERATOR_IMAGES: true
       USE_ARMADA_GO: true
@@ -127,28 +129,28 @@
     irrelevant-files: *irrelevant-files
 
 - job:
-    name: armada-operator-docker-build-gate-ubuntu_focal
+    name: armada-operator-docker-build-gate-ubuntu_jammy
     timeout: 3600
     run: tools/gate/playbooks/docker-image-build.yaml
-    nodeset: armada-operator-single-node-focal
+    nodeset: armada-operator-single-node-jammy
     vars:
       publish: false
-      distro: ubuntu_focal
+      distro: ubuntu_jammy
       tags:
         dynamic:
           patch_set: true
 
 
 - job:
-    name: armada-operator-docker-publish-ubuntu_focal
+    name: armada-operator-docker-publish-ubuntu_jammy
     timeout: 3600
     run: tools/gate/playbooks/docker-image-build.yaml
-    nodeset: armada-operator-single-node-focal
+    nodeset: armada-operator-single-node-jammy
     secrets:
       - airship_armada_operator_quay_creds
     vars:
       publish: true
-      distro: ubuntu_focal
+      distro: ubuntu_jammy
       tags:
         dynamic:
           branch: true

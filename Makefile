@@ -13,8 +13,10 @@ LABEL             ?= org.airshipit.build=community
 COMMIT            ?= $(shell git rev-parse HEAD)
 PYTHON            = python3
 CHARTS            := $(filter-out deps, $(patsubst charts/%/.,%,$(wildcard charts/*/.)))
-DISTRO            ?= ubuntu_focal
+DISTRO            ?= ubuntu_jammy
+DISTRO_ALIAS	  ?= ubuntu_focal
 IMAGE             := ${DOCKER_REGISTRY}/${IMAGE_PREFIX}/${IMAGE_NAME}:${IMAGE_TAG}-${DISTRO}
+IMAGE_ALIAS       := ${DOCKER_REGISTRY}/${IMAGE_PREFIX}/${IMAGE_NAME}:${IMAGE_TAG}-${DISTRO_ALIAS}
 UBUNTU_BASE_IMAGE ?=
 
 # VERSION INFO
@@ -173,6 +175,13 @@ else
 		-f images/armada-operator/Dockerfile.$(DISTRO) \
 		$(_BASE_IMAGE_ARG) \
 		--build-arg HELM_ARTIFACT_URL=$(HELM_ARTIFACT_URL) .
+endif
+ifneq ($(DISTRO), $(DISTRO_ALIAS))
+	docker tag $(IMAGE) $(IMAGE_ALIAS)
+endif
+ifeq ($(DOCKER_REGISTRY), localhost:5000)
+	docker push $(IMAGE)
+	docker push $(IMAGE_ALIAS)
 endif
 ifeq ($(PUSH_IMAGE), true)
 	docker push $(IMAGE)
