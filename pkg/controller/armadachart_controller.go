@@ -17,10 +17,15 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/cli-runtime/pkg/resource"
+
 	"io"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -35,10 +40,12 @@ import (
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/chartutil"
+	helmkube "helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextension "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/rest"
@@ -114,6 +121,12 @@ func (r *ArmadaChartReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log.Info(durationMsg)
 
 	return requeueRequired(ac, result, err)
+}
+
+type rootScoped struct{}
+
+func (*rootScoped) Name() apimeta.RESTScopeName {
+	return apimeta.RESTScopeNameRoot
 }
 
 func (r *ArmadaChartReconciler) reconcile(ctx context.Context, ac armadav1.ArmadaChart) (armadav1.ArmadaChart, ctrl.Result, error) {
@@ -231,6 +244,91 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 				}
 			}
 		}
+
+		if ac.Spec.Upgrade.PreUpgrade.UpdateCRD {
+			kc := helmkube.New(gettr)
+			allCRDs := make(helmkube.ResourceList, 0)
+			for _, CRDObj := range chrt.CRDObjects() {
+				res, err := kc.Build(bytes.NewBuffer(CRDObj.File.Data), false)
+				if err != nil {
+					log.Info(fmt.Sprintf("failed to parse CustomResourceDefinitions from %s: %s", CRDObj.Name, err))
+					continue
+				}
+				allCRDs = append(allCRDs, res...)
+			}
+			clientSet, err := apiextension.NewForConfig(restCfg)
+			if err != nil {
+				log.Info(fmt.Sprintf("could not create Kubernetes client set for API extensions: %s", err))
+				return armadav1.ArmadaChartNotReady(ac, "CRDUpdateFailed", err.Error()), err
+			}
+			csapi := clientSet.ApiextensionsV1().CustomResourceDefinitions()
+			var totalItems []*resource.Info
+			original := make(helmkube.ResourceList, 0)
+			for _, r := range allCRDs {
+				if o, err := csapi.Get(context.TODO(), r.Name, v1.GetOptions{}); err == nil && o != nil {
+					o.GetResourceVersion()
+					original = append(original, &resource.Info{
+						Client: clientSet.ApiextensionsV1().RESTClient(),
+						Mapping: &apimeta.RESTMapping{
+							Resource: schema.GroupVersionResource{
+								Group:    "apiextensions.k8s.io",
+								Version:  r.Mapping.GroupVersionKind.Version,
+								Resource: "customresourcedefinition",
+							},
+							GroupVersionKind: schema.GroupVersionKind{
+								Kind:    "CustomResourceDefinition",
+								Group:   "apiextensions.k8s.io",
+								Version: r.Mapping.GroupVersionKind.Version,
+							},
+							Scope: &rootScoped{},
+						},
+						Namespace:       o.ObjectMeta.Namespace,
+						Name:            o.ObjectMeta.Name,
+						Object:          o,
+						ResourceVersion: o.ObjectMeta.ResourceVersion,
+					})
+				} else if !apierrors.IsNotFound(err) {
+					log.Info(fmt.Sprintf("failed to get CustomResourceDefinition %s: %s", r.Name, err))
+					continue
+				}
+			}
+
+			if rr, err := kc.Update(original, allCRDs, true); err != nil {
+				log.Info(fmt.Sprintf("failed to update CustomResourceDefinition(s): %s", err))
+				return armadav1.ArmadaChartNotReady(ac, "CRDUpdateFailed", err.Error()), err
+			} else {
+				if rr != nil {
+					if rr.Created != nil {
+						totalItems = append(totalItems, rr.Created...)
+					}
+					if rr.Updated != nil {
+						totalItems = append(totalItems, rr.Updated...)
+					}
+					if rr.Deleted != nil {
+						totalItems = append(totalItems, rr.Deleted...)
+					}
+				}
+			}
+			if len(totalItems) > 0 {
+				// Give time for the CRD to be recognized.
+				if err := kc.Wait(totalItems, 60*time.Second); err != nil {
+					log.Info(fmt.Sprintf("failed to wait for CustomResourceDefinition(s): %s", err))
+					return armadav1.ArmadaChartNotReady(ac, "CRDUpdateFailed", err.Error()), err
+				}
+				log.Info(fmt.Sprintf("successfully applied %d CustomResourceDefinition(s)", len(totalItems)))
+
+				// Clear the RESTMapper cache, since it will not have the new CRDs.
+				// Helm does further invalidation of the client at a later stage
+				// when it gathers the server capabilities.
+				if m, err := gettr.ToRESTMapper(); err == nil {
+					if rm, ok := m.(apimeta.ResettableRESTMapper); ok {
+						log.Info("clearing REST mapper cache")
+						rm.Reset()
+					}
+				}
+			}
+		}
+
 		if ac.Spec.Upgrade.PreUpgrade.Cleanup {
 			getter, err := r.buildRESTClientGetter(ctx, ac)
 			if err != nil {
@@ -476,8 +574,12 @@ func isUpdateRequired(ctx context.Context, release *release.Release, chrt *chart
 		log.Info("There are chart values diffs found")
 		log.Info(cmp.Diff(release.Config, vals.AsMap(), cmpopts.EquateEmpty()))
 		return true
-	}
 
+	case !cmp.Equal(release.Chart.CRDObjects(), chrt.CRDObjects(), cmpopts.EquateEmpty()):
+		log.Info("There are chart CRD diffs found")
+		log.Info(cmp.Diff(release.Config, vals.AsMap(), cmpopts.EquateEmpty()))
+		return true
+	}
 	return false
 }
 
