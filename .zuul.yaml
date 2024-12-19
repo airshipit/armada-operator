@@ -122,6 +122,8 @@
         - ./tools/deployment/airskiff/developer/025-start-artifactory.sh
         - ./tools/deployment/airskiff/developer/026-reduce-site.sh
         - ./tools/deployment/airskiff/developer/027-enable-armada-operator.sh
+        # pause
+        # - ./tools/deployment/airskiff/common/sleep.sh
         - ./tools/deployment/airskiff/developer/030-armada-bootstrap.sh
         - ./tools/deployment/airskiff/developer/100-deploy-osh.sh
         - ./tools/deployment/airskiff/common/os-env.sh

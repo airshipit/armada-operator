@@ -178,10 +178,12 @@ else
 endif
 ifneq ($(DISTRO), $(DISTRO_ALIAS))
 	docker tag $(IMAGE) $(IMAGE_ALIAS)
+ifeq ($(DOCKER_REGISTRY), localhost:5000)
+	docker push $(IMAGE_ALIAS)
+endif
 endif
 ifeq ($(DOCKER_REGISTRY), localhost:5000)
 	docker push $(IMAGE)
-	docker push $(IMAGE_ALIAS)
 endif
 ifeq ($(PUSH_IMAGE), true)
 	docker push $(IMAGE)
