@@ -10,6 +10,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.33.1
+	github.com/tigera/api v0.0.0-20230406222214-ca74195900cb
 	helm.sh/helm/v3 v3.16.4
 	k8s.io/api v0.31.5
 	k8s.io/apiextensions-apiserver v0.31.5
@@ -84,6 +85,7 @@ require (
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/imdario/mergo v0.3.16 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jinzhu/copier v0.3.5 // indirect
 	github.com/jmoiron/sqlx v1.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

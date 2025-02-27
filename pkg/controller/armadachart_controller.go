@@ -22,15 +22,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/go-retryablehttp"
+	v3 "github.com/tigera/api/pkg/apis/projectcalico/v3"
+	calico "github.com/tigera/api/pkg/client/clientset_generated/clientset"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/chartutil"
@@ -40,12 +45,15 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextension "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -468,10 +476,38 @@ func (r *ArmadaChartReconciler) loadHelmChart(ctx context.Context, hr armadav1.A
 		return nil, fmt.Errorf("failed to create a new request: %w", err)
 	}
 
-	resp, err := r.httpClient.Do(req)
+	var resp *http.Response
+	resp, err = r.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to download artifact, error: %w", err)
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			log.Info(fmt.Sprintf("failed to download artifact due to %s, attempting to apply temporary GNP", err.Error())) // remove
+
+			urlInfo, err := url.Parse(source)
+			if err != nil {
+				return nil, err
+			}
+			hostname := strings.TrimPrefix(urlInfo.Hostname(), "www.")
+
+			ips, err := net.LookupIP(hostname)
+			if err != nil {
+				return nil, err
+			}
+
+			var nets []string
+			for _, ip := range ips {
+				nets = append(nets, fmt.Sprintf("%s/32", ip.String()))
+			}
+
+			resp, err = r.downloadWithGNP(hr.Spec.ChartName, req, nets, log)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("failed to download artifact, error: %w", err)
+		}
 	}
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -484,6 +520,125 @@ func (r *ArmadaChartReconciler) loadHelmChart(ctx context.Context, hr armadav1.A
 
 	log.Info(fmt.Sprintf("helm chart downloaded to %s", f.Name()))
 	return loader.Load(f.Name())
+}
+
+func (r *ArmadaChartReconciler) getGNPTemplate(chartName string, log logr.Logger) ([]byte, error) {
+	operatorNamespace := os.Getenv("NAMESPACE")
+	configGetter, err := r.buildRESTClientGetter(operatorNamespace, log)
+	if err != nil {
+		return nil, err
+	}
+	restConfig, err := configGetter.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+	clientSet, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	configMap, err := clientSet.CoreV1().ConfigMaps(operatorNamespace).Get(context.TODO(), "armada-gnp", v1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	if val, ok := configMap.Data[chartName]; ok {
+		return []byte(val), nil
+	}
+
+	return nil, errors.New(fmt.Sprintf("failed to download chart %s, no GNP policy found", chartName))
+}
+
+func (r *ArmadaChartReconciler) getGNP(chartName string, log logr.Logger) (*v3.GlobalNetworkPolicy, error) {
+	sch := runtime.NewScheme()
+	if err := v3.AddToScheme(sch); err != nil {
+		return nil, err
+	}
+
+	cfgMapData, err := r.getGNPTemplate(chartName, log)
+	if err != nil {
+		return nil, err
+	}
+
+	obj, _, err := serializer.NewCodecFactory(sch).UniversalDeserializer().Decode(cfgMapData, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return obj.(*v3.GlobalNetworkPolicy), nil
+}
+
+func (r *ArmadaChartReconciler) downloadWithGNP(chartName string, req *retryablehttp.Request, nets []string, log logr.Logger) (*http.Response, error) {
+	armadaGNP, err := r.getGNP(chartName, log)
+	if err != nil {
+		return nil, err
+	}
+
+	clientGetter, err := r.buildRESTClientGetter("default", log)
+	if err != nil {
+		return nil, err
+	}
+	restConfig, err := clientGetter.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	calicoClient, err := calico.NewForConfig(restConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// consider using wait.PollUntilContextTimeout
+	deleteGNP := func(e error) error {
+		return errors.Join(e, calicoClient.ProjectcalicoV3().GlobalNetworkPolicies().Delete(context.TODO(), armadaGNP.Name, v1.DeleteOptions{}))
+	}
+
+	appendNets := func(ruleType string, rules *[]v3.Rule) {
+		for i, rule := range *rules {
+			for _, n := range nets {
+				if !slices.Contains(rule.Destination.Nets, n) {
+					log.Info(fmt.Sprintf("appending net %s to the %s rule policy type", n, ruleType))
+					(*rules)[i].Destination.Nets = append((*rules)[i].Destination.Nets, n)
+				}
+			}
+		}
+	}
+
+	addNetsToRule := func(ruleType string) {
+		switch ruleType {
+		case "Egress":
+			appendNets(ruleType, &armadaGNP.Spec.Egress)
+		case "Ingress":
+			appendNets(ruleType, &armadaGNP.Spec.Ingress)
+		}
+	}
+
+	for _, policyType := range armadaGNP.Spec.Types {
+		addNetsToRule(string(policyType))
+	}
+
+	oldGNP, err := calicoClient.ProjectcalicoV3().GlobalNetworkPolicies().Get(context.TODO(), armadaGNP.Name, v1.GetOptions{})
+	if err == nil && oldGNP != nil {
+		log.Info("armada gnp already exists, deleting")
+		err = deleteGNP(nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	_, err = calicoClient.ProjectcalicoV3().GlobalNetworkPolicies().Create(context.TODO(), armadaGNP, v1.CreateOptions{})
+	if err != nil {
+		return nil, err
+	}
+	log.Info("armada gnp has been created, waiting 5 second for the rules to apply")
+
+	time.Sleep(5 * time.Second)
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return nil, deleteGNP(err)
+	}
+
+	return resp, deleteGNP(nil)
 }
 
 func (r *ArmadaChartReconciler) buildRESTClientGetter(namespace string, l logr.Logger) (genericclioptions.RESTClientGetter, error) {
