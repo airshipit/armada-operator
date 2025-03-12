@@ -400,7 +400,7 @@ func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.C
 
 	for _, res := range hr.Spec.Wait.ArmadaChartWaitResources {
 		log.Info(fmt.Sprintf("processing wait resource %v", res))
-		if res.Labels == nil || len(res.Labels) == 0 {
+		if res.Labels == nil {
 			res.Labels = make(map[string]string)
 		}
 
@@ -409,8 +409,7 @@ func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.C
 		}
 
 		if len(res.Labels) == 0 {
-			log.Info("no selectors applied, continuing...")
-			continue
+			log.Info("no selectors applied, waiting for all resources...")
 		}
 
 		log.Info(fmt.Sprintf("Resolved `wait.resources` list: %v", res))
@@ -423,12 +422,27 @@ func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.C
 				labelSelector = fmt.Sprintf("%s=%s", k, v)
 			}
 		}
+		if res.Namespace == nil {
+			res.Namespace = &hr.Spec.Namespace
+		}
+
+		if res.Delay > 0 {
+			time.Sleep(time.Duration(res.Delay) * time.Second)
+		}
+
+		var resType string
+		if strings.HasSuffix(res.Type, "s") {
+			resType = fmt.Sprintf("%ses", res.Type)
+		} else {
+			resType = fmt.Sprintf("%ss", res.Type)
+		}
 
 		opts := waitutil.WaitOptions{
 			RestConfig:    restCfg,
-			Namespace:     hr.Spec.Namespace,
+			Namespace:     *res.Namespace,
+			Condition:     res.Condition,
 			LabelSelector: labelSelector,
-			ResourceType:  fmt.Sprintf("%ss", res.Type),
+			ResourceType:  resType,
 			Timeout:       time.Second * time.Duration(hr.Spec.Wait.Timeout),
 			MinReady:      res.MinReady,
 			Logger:        log,
@@ -439,7 +453,6 @@ func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.C
 		}
 	}
 
-	log.Info("all resources are ready")
 	hr.Status.WaitCompleted = true
 	if err := r.patchStatus(ctx, &hr); err != nil {
 		return hr, err
@@ -635,10 +648,10 @@ func (r *ArmadaChartReconciler) downloadWithGNP(chartName string, req *retryable
 	time.Sleep(5 * time.Second)
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return nil, deleteGNP(err)
+		return nil, err
 	}
 
-	return resp, deleteGNP(nil)
+	return resp, nil
 }
 
 func (r *ArmadaChartReconciler) buildRESTClientGetter(namespace string, l logr.Logger) (genericclioptions.RESTClientGetter, error) {

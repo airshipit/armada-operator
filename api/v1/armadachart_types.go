@@ -96,7 +96,16 @@ type ArmadaChartWaitResource struct {
 	Labels map[string]string `json:"labels,omitempty"`
 
 	// +optional
+	Namespace *string `json:"namespace"`
+
+	// +optional
 	MinReady string `json:"min_ready,omitempty"`
+
+	// +optional
+	Condition string `json:"condition,omitempty"`
+
+	// +optional
+	Delay int `json:"delay,omitempty"`
 }
 
 type ArmadaChartUpgrade struct {

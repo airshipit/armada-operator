@@ -20,21 +20,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
+	tigerav1 "github.com/tigera/operator/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
@@ -67,12 +71,13 @@ type WaitOptions struct {
 	Namespace     string
 	LabelSelector string
 	ResourceType  string
+	Condition     string
 	Timeout       time.Duration
 	MinReady      string
 	Logger        logr.Logger
 }
 
-func getObjectStatus(obj interface{}, minReady *MinReady) Status {
+func getObjectStatus(obj interface{}, condition string, minReady *MinReady) Status {
 	switch v := obj.(type) {
 	case *corev1.Pod:
 		return isPodReady(v)
@@ -88,17 +93,21 @@ func getObjectStatus(obj interface{}, minReady *MinReady) Status {
 		return isStatefulSetReady(v, minReady)
 	case *armadav1.ArmadaChart:
 		return isArmadaChartReady(v)
+	case *tigerav1.Installation:
+		return isInstallationReady(v)
+	case *tigerav1.TigeraStatus:
+		return isTigeraStatusReady(v)
 	default:
 		return Status{Error, fmt.Sprintf("Unable to cast an object to any type %s", obj)}
 	}
 }
 
-func allMatch(logger logr.Logger, store cache.Store, minReady *MinReady, obj runtime.Object) (bool, error) {
+func allMatch(logger logr.Logger, store cache.Store, condition string, minReady *MinReady, obj runtime.Object) (bool, error) {
 	for _, item := range store.List() {
 		if obj != nil && item == obj {
 			continue
 		}
-		status := getObjectStatus(item, minReady)
+		status := getObjectStatus(item, condition, minReady)
 		if status.StatusType != Ready && status.StatusType != Skipped {
 			metaObj, err := meta.Accessor(item)
 			if err != nil {
@@ -113,7 +122,7 @@ func allMatch(logger logr.Logger, store cache.Store, minReady *MinReady, obj run
 	return true, nil
 }
 
-func processEvent(logger logr.Logger, event watch.Event, minReady *MinReady) (StatusType, error) {
+func processEvent(logger logr.Logger, event watch.Event, condition string, minReady *MinReady) (StatusType, error) {
 	metaObj, err := meta.Accessor(event.Object)
 	if err != nil {
 		return Error, err
@@ -130,7 +139,7 @@ func processEvent(logger logr.Logger, event watch.Event, minReady *MinReady) (St
 		return Skipped, nil
 	}
 
-	status := getObjectStatus(event.Object, minReady)
+	status := getObjectStatus(event.Object, condition, minReady)
 	logger.Info(fmt.Sprintf("Resource %s/%s is %s: %s", metaObj.GetNamespace(), metaObj.GetName(), status.StatusType, status.Msg))
 	return status.StatusType, nil
 }
@@ -258,6 +267,44 @@ func isDaemonSetReady(daemonSet *appsv1.DaemonSet, minReady *MinReady) Status {
 	return Status{Unready, fmt.Sprintf("Waiting for daemon set spec update to be observed...")}
 }
 
+func isInstallationReady(installation *tigerav1.Installation) Status {
+	name := installation.GetName()
+	conditions := installation.Status.Conditions
+
+	for _, condition := range conditions {
+		if !strings.EqualFold(condition.Type, "Ready") {
+			continue
+		}
+		if condition.ObservedGeneration < installation.GetGeneration() {
+			return Status{Unready, fmt.Sprintf("Observed generation doesn't match in the status of Installation object: %s", name)}
+		}
+		if strings.EqualFold(string(condition.Status), "True") {
+			return Status{Ready, fmt.Sprintf("Installation %s is ready", name)}
+		}
+	}
+
+	return Status{Unready, fmt.Sprintf("Installation %s is not ready", name)}
+}
+
+func isTigeraStatusReady(tigeraStatus *tigerav1.TigeraStatus) Status {
+	name := tigeraStatus.GetName()
+	conditions := tigeraStatus.Status.Conditions
+
+	for _, condition := range conditions {
+		if !strings.EqualFold(string(condition.Type), "Available") {
+			continue
+		}
+		if condition.ObservedGeneration < tigeraStatus.GetGeneration() {
+			return Status{Unready, fmt.Sprintf("Observed generation doesn't match in the status of TigeraStatus object: %s", name)}
+		}
+		if strings.EqualFold(string(condition.Status), "True") {
+			return Status{Ready, fmt.Sprintf("TigeraStatus %s is ready", name)}
+		}
+	}
+
+	return Status{Unready, fmt.Sprintf("TigeraStatus %s is not ready", name)}
+}
+
 func isStatefulSetReady(statefulSet *appsv1.StatefulSet, minReady *MinReady) Status {
 	name := statefulSet.GetName()
 	spec := statefulSet.Spec
@@ -322,9 +369,13 @@ func hasOwner(ometa *metav1.ObjectMeta, kind string) bool {
 	return false
 }
 
-func getClient(resource string, config *rest.Config) (rest.Interface, error) {
+func getClient(resource string, config *rest.Config) (cache.Getter, error) {
 	if resource == "armadacharts" {
 		return armadav1.NewForConfig(config)
+	}
+
+	if resource == "installations" || resource == "tigerastatuses" {
+		return tigeraClient(config)
 	}
 
 	cs, err := kubernetes.NewForConfig(config)
@@ -342,6 +393,38 @@ func getClient(resource string, config *rest.Config) (rest.Interface, error) {
 	}
 
 	return nil, errors.New(fmt.Sprintf("Unable to find a client for resource '%s'", resource))
+}
+
+func tigeraClient(c *rest.Config) (*rest.RESTClient, error) {
+	config := *c
+	if err := setConfigDefaults(&config); err != nil {
+		return nil, err
+	}
+	client, err := rest.UnversionedRESTClientFor(&config)
+
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+func setConfigDefaults(config *rest.Config) error {
+	gv := schema.GroupVersion{Group: "operator.tigera.io", Version: "v1"}
+	config.GroupVersion = &gv
+	config.APIPath = "/apis"
+
+	sch := runtime.NewScheme()
+	if err := scheme.AddToScheme(sch); err != nil {
+		return err
+	}
+	sch.AddUnversionedTypes(gv, &tigerav1.Installation{}, &tigerav1.InstallationList{}, &tigerav1.TigeraStatus{}, &tigerav1.TigeraStatusList{})
+	config.NegotiatedSerializer = serializer.NewCodecFactory(sch)
+
+	if config.UserAgent == "" {
+		config.UserAgent = rest.DefaultKubernetesUserAgent()
+	}
+
+	return nil
 }
 
 func getMinReady(minReady string) (*MinReady, error) {
@@ -390,22 +473,22 @@ func (c *WaitOptions) Wait(parent context.Context) error {
 			return true, nil
 		}
 		c.Logger.Info(fmt.Sprintf("number of objects to watch: %d", len(store.List())))
-		return allMatch(c.Logger, cacheStore, minReady, nil)
+		return allMatch(c.Logger, cacheStore, c.Condition, minReady, nil)
 	}
 
 	cfu := func(event watch.Event) (bool, error) {
-		if ready, err := processEvent(c.Logger, event, minReady); (ready != Ready && ready != Skipped) || err != nil {
+		if ready, err := processEvent(c.Logger, event, c.Condition, minReady); (ready != Ready && ready != Skipped) || err != nil {
 			return false, err
 		}
 
-		return allMatch(c.Logger, cacheStore, minReady, event.Object)
+		return allMatch(c.Logger, cacheStore, c.Condition, minReady, event.Object)
 	}
 
 	_, err = watchtools.UntilWithSync(ctx, lw, nil, cpu, cfu)
 	if wait.Interrupted(err) {
 		var failedItems []string
 		for _, item := range cacheStore.List() {
-			status := getObjectStatus(item, minReady)
+			status := getObjectStatus(item, c.Condition, minReady)
 			if status.StatusType != Ready && status.StatusType != Skipped {
 				metaObj, err := meta.Accessor(item)
 				if err != nil {

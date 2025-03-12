@@ -102,7 +102,7 @@ func (r *Runner) Install(ctx context.Context, ac armadav1.ArmadaChart, chart *ch
 	return rel, wrapActionErr(r.logBuffer, err)
 }
 
-// Upgrade runs an Helm upgrade action for the given ArmadaChart.
+// Upgrade runs a Helm upgrade action for the given ArmadaChart.
 func (r *Runner) Upgrade(ctx context.Context, ac armadav1.ArmadaChart, chart *chart.Chart, values chartutil.Values) (*release.Release, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
