@@ -142,6 +142,8 @@ func (r *Runner) Uninstall(ac armadav1.ArmadaChart) error {
 	defer r.logBuffer.Reset()
 
 	uninstall := action.NewUninstall(r.config)
+	uninstall.Wait = true
+	uninstall.Timeout = time.Duration(int64(time.Second) * 300)
 
 	_, err := uninstall.Run(ac.Name)
 	return wrapActionErr(r.logBuffer, err)
