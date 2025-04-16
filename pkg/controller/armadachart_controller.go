@@ -42,6 +42,7 @@ import (
 	helmkube "helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextension "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -224,6 +225,8 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 					*obj, *objList = &corev1.Pod{}, &corev1.PodList{}
 				case "cronjob":
 					*obj, *objList = &batchv1.CronJob{}, &batchv1.CronJobList{}
+				case "deployment":
+					*obj, *objList = &appsv1.Deployment{}, &appsv1.DeploymentList{}
 				}
 
 				err = r.DeleteAllOf(ctx, *obj, client.MatchingLabels(delRes.Labels), client.InNamespace(ac.Spec.Namespace), client.PropagationPolicy(v1.DeletePropagationForeground))
@@ -350,6 +353,17 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 		} else {
 			log.Info("helm upgrade has started")
 			rel, err = run.Upgrade(ctx, ac, chrt, vals)
+			if err != nil {
+				log.Info(fmt.Sprintf("Upgrade failed, reason: %s, trying to uninstall existing release", err.Error()))
+				if err := run.Uninstall(ac); err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
+					return armadav1.ArmadaChartNotReady(ac, "DeleteHelmStatusFailed", err.Error()), err
+				}
+				log.Info("uninstalled Helm release for deleted resource")
+
+				// Install action must be invoked
+				log.Info("helm install has started")
+				rel, err = run.Install(ctx, ac, chrt, vals)
+			}
 		}
 	}
 
