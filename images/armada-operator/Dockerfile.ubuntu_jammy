@@ -30,10 +30,24 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o ma
 #FROM gcr.io/distroless/static:nonroot
 FROM ${FROM}
 
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
 # Install CA certificates
 RUN apt update \
     && apt upgrade -y \
-    && apt install -y ca-certificates
+    && apt install -y ca-certificates \
+    && apt autoremove -yqq --purge \
+    && apt clean \
+    && rm -rf \
+         /tmp/* \
+         /usr/share/doc \
+         /usr/share/doc-base \
+         /usr/share/man \
+         /var/lib/apt/lists/* \
+         /var/log/* \
+         /var/tmp/*
 # Update CA certificates
 RUN update-ca-certificates
 
