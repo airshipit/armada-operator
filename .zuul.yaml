@@ -62,6 +62,7 @@
       - tools/gate/playbooks/osh-infra-collect-logs.yaml
     vars:
       treasuremap_ref: v1.9
+      overlay_network_setup: true
       extra_volume:
         size: 80G
         type: Linux
@@ -78,23 +79,25 @@
       loopback_device: /dev/loop100
       loopback_image: "/opt/ext_vol/openstack-helm/ceph-loop.img"
       ceph_osd_data_device: /dev/loop100
-      kube_version_repo: "v1.31"
-      kube_version: "1.31.3-1.1"
+      kube_version_repo: "v1.32"
+      kube_version: "1.32.5-1.1"
       calico_setup: true
-      calico_version: "v3.27.4"
+      calico_version: "v3.30.1"
       cilium_setup: false
-      cilium_version: "1.16.0"
+      cilium_version: "1.17.4"
       flannel_setup: false
-      flannel_version: v0.25.4
-      metallb_setup: false
-      metallb_version: "0.13.12"
-      helm_version: "v3.14.0"
-      crictl_version: "v1.30.1"
+      flannel_version: v0.26.7
+      metallb_setup: true
+      metallb_version: "0.14.9"
+      coredns_resolver_setup: false
+      ingress_setup: true
+      helm_version: "v3.18.1"
+      crictl_version: "v1.33.0"
+      run_helm_tests: "no"
+      openstack_provider_gateway_setup: true
       zuul_osh_relative_path: ../../openstack/openstack-helm
-      zuul_osh_infra_relative_path: ../../openstack/openstack-helm
       zuul_treasuremap_relative_path: ../../airship/treasuremap
       gate_scripts_relative_path: ../../openstack/openstack-helm
-      run_helm_tests: "no"
 
 - job:
     name: armada-operator-airskiff-deployment-jammy
@@ -104,9 +107,9 @@
     parent: armada-operator-base
     vars:
       site: airskiff
-      HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz
-      HTK_COMMIT: 49c117443391cec75e0bd52bb4a9d033325927ad
-      OSH_COMMIT: 49c117443391cec75e0bd52bb4a9d033325927ad
+      HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.18.4-linux-amd64.tar.gz
+      HTK_COMMIT: 80041dfbb5c22aa67dcd8dfa3332a943aa0d366c
+      OSH_COMMIT: 80041dfbb5c22aa67dcd8dfa3332a943aa0d366c
       CLONE_ARMADA_OPERATOR: false
       DISTRO: ubuntu_jammy
       DOCKER_REGISTRY: localhost:5000
