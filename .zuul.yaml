@@ -32,108 +32,20 @@
         label: ubuntu-jammy
 
 - job:
-    name: armada-operator-base
-    abstract: true
-    roles:
-      - zuul: airship/kubernetes-entrypoint
-      - zuul: openstack/openstack-helm
-      - zuul: zuul/zuul-jobs
-    required-projects:
-      - name: openstack/openstack-helm
-      - name: openstack/openstack-helm-plugin
-      - name: airship/treasuremap
-        override-checkout: v1.9
-    irrelevant-files: &irrelevant-files
-      - ^.*\.rst$
-      - ^doc/.*$
-      - ^etc/.*$
-      - ^releasenotes/.*$
-      - ^setup.cfg$
-      - ^deckhand/tests/unit/.*$
-    timeout: 10800
-    pre-run:
-      - tools/gate/playbooks/checkout-treasuremap-ref.yaml
-      - tools/gate/playbooks/prepare-hosts.yaml
-      - tools/gate/playbooks/mount-volumes.yaml
-      - tools/gate/playbooks/deploy-env.yaml
-    run:
-      - tools/gate/playbooks/airship-run-scripts.yaml
-    post-run:
-      - tools/gate/playbooks/osh-infra-collect-logs.yaml
-    vars:
-      treasuremap_ref: v1.9
-      overlay_network_setup: true
-      extra_volume:
-        size: 80G
-        type: Linux
-        mount_point: /opt/ext_vol
-      docker:
-        root_path: "/opt/ext_vol/docker"
-      containerd:
-        root_path: "/opt/ext_vol/containerd"
-      kubeadm:
-        pod_network_cidr: "10.244.0.0/16"
-        service_cidr: "10.96.0.0/16"
-      osh_plugin_repo: "{{ zuul.project.src_dir }}/../../openstack/openstack-helm-plugin"
-      loopback_setup: true
-      loopback_device: /dev/loop100
-      loopback_image: "/opt/ext_vol/openstack-helm/ceph-loop.img"
-      ceph_osd_data_device: /dev/loop100
-      kube_version_repo: "v1.32"
-      kube_version: "1.32.5-1.1"
-      calico_setup: true
-      calico_version: "v3.30.1"
-      cilium_setup: false
-      cilium_version: "1.17.4"
-      flannel_setup: false
-      flannel_version: v0.26.7
-      metallb_setup: true
-      metallb_version: "0.14.9"
-      coredns_resolver_setup: false
-      ingress_setup: true
-      helm_version: "v3.18.1"
-      crictl_version: "v1.33.0"
-      run_helm_tests: "no"
-      openstack_provider_gateway_setup: true
-      zuul_osh_relative_path: ../../openstack/openstack-helm
-      zuul_treasuremap_relative_path: ../../airship/treasuremap
-      gate_scripts_relative_path: ../../openstack/openstack-helm
-
-- job:
     name: armada-operator-airskiff-deployment-jammy
-    nodeset: treasuremap-airskiff-1node-ubuntu_jammy
     description: |
       Deploy Memcached using Airskiff and submitted Armada-operator changes.
-    parent: armada-operator-base
+    parent: treasuremap-airskiff-infra-deploy-base
+    nodeset: treasuremap-airskiff-1node-ubuntu_jammy
+    required-projects:
+      - name: airship/treasuremap
+        override-checkout: v1.9
     vars:
-      site: airskiff
-      HELM_ARTIFACT_URL: https://get.helm.sh/helm-v3.18.4-linux-amd64.tar.gz
-      HTK_COMMIT: 80041dfbb5c22aa67dcd8dfa3332a943aa0d366c
-      OSH_COMMIT: 80041dfbb5c22aa67dcd8dfa3332a943aa0d366c
+      treasuremap_ref: v1.9
       CLONE_ARMADA_OPERATOR: false
-      DISTRO: ubuntu_jammy
-      DOCKER_REGISTRY: localhost:5000
       MAKE_ARMADA_OPERATOR_IMAGES: true
       USE_ARMADA_GO: true
       gate_scripts_relative_path: ../../airship/treasuremap
-      gate_scripts:
-        - ./tools/deployment/airskiff/developer/000-prepare-k8s.sh
-        - ./tools/deployment/airskiff/developer/009-setup-apparmor.sh
-        - ./tools/deployment/airskiff/developer/000-clone-dependencies.sh
-        - ./tools/deployment/airskiff/developer/020-setup-client.sh
-        - ./tools/deployment/airskiff/developer/015-make-all-charts.sh
-        - ./tools/deployment/airskiff/developer/017-make-all-images.sh
-        - ./tools/deployment/airskiff/developer/025-start-artifactory.sh
-        - ./tools/deployment/airskiff/developer/026-reduce-site.sh
-        - ./tools/deployment/airskiff/developer/027-enable-armada-operator.sh
-        # pause
-        # - ./tools/deployment/airskiff/common/sleep.sh
-        - ./tools/deployment/airskiff/developer/030-armada-bootstrap.sh
-        - ./tools/deployment/airskiff/developer/100-deploy-osh.sh
-        - ./tools/deployment/airskiff/common/os-env.sh
-        - ./tools/gate/wait-for-shipyard.sh
-        - ./tools/deployment/airskiff/common/get-airflow-worker-logs.sh
-    irrelevant-files: *irrelevant-files
 
 - job:
     name: armada-operator-docker-build-gate-ubuntu_jammy
@@ -146,7 +58,6 @@
       tags:
         dynamic:
           patch_set: true
-
 
 - job:
     name: armada-operator-docker-publish-ubuntu_jammy
