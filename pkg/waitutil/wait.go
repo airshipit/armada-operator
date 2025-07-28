@@ -111,7 +111,7 @@ func allMatch(logger logr.Logger, store cache.Store, condition string, minReady 
 		if status.StatusType != Ready && status.StatusType != Skipped {
 			metaObj, err := meta.Accessor(item)
 			if err != nil {
-				logger.Error(err, "Unable to get meta info for object: %T", item)
+				logger.Error(err, fmt.Sprintf("Unable to get meta info for object: %T", item))
 			} else {
 				logger.Info(fmt.Sprintf("Continuing to wait: resource %s/%s is %s: %s", metaObj.GetNamespace(), metaObj.GetName(), status.StatusType, status.Msg))
 			}
@@ -492,13 +492,13 @@ func (c *WaitOptions) Wait(parent context.Context) error {
 			if status.StatusType != Ready && status.StatusType != Skipped {
 				metaObj, err := meta.Accessor(item)
 				if err != nil {
-					c.Logger.Error(err, "Unable to get meta info for unready object: %T", item)
+					c.Logger.Error(err, fmt.Sprintf("Unable to get meta info for unready object: %T", item))
 				} else {
-					failedItems = append(failedItems, fmt.Sprintf("%s %s/%s", item, metaObj.GetNamespace(), metaObj.GetName()))
+					failedItems = append(failedItems, fmt.Sprintf("%s/%s", metaObj.GetNamespace(), metaObj.GetName()))
 				}
 			}
 		}
-		c.Logger.Info("The following items were not ready: %s", failedItems)
+		c.Logger.Info(fmt.Sprintf("The following %s were not ready: %s", c.ResourceType, failedItems))
 	}
 
 	return err
