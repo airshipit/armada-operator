@@ -22,6 +22,7 @@
 
     post:
       jobs:
+        - armada-operator-upload-git-mirror
         - armada-operator-docker-publish-ubuntu_jammy
 
 
@@ -65,7 +66,7 @@
     run: tools/gate/playbooks/docker-image-build.yaml
     nodeset: armada-operator-single-node-jammy
     secrets:
-      - airship_armada_operator_quay_creds
+      - airship_armada_operator_quay_creds_2026
     vars:
       publish: true
       distro: ubuntu_jammy
@@ -102,3 +103,59 @@
           SYsOer9caZOZ8Sin7udDzH/L/yFQQeu/HCZqWNtMJR49a2TvI31v75TtoY2Z2JhkEIGs7
           PryaAxEZywk1xP701FLFsdIWPbpvu+TElNnbEc+dI6HXtdpV6hArHI1LY0qplLtNV7c/g
           GRXIKFyn7yVMpdRMt9i+IncN2m/xskSIn4IOgcLbTD4giFDE2ZBdpEareD4kEA=
+
+- secret:
+    name: airship_armada_operator_quay_creds_2026
+    data:
+      username: !encrypted/pkcs1-oaep
+        - XHAyIZmI3Cxt/S7HoZ2WU1FNmIiYZMGDuGYqlCaIDNFfh2anQX1B162uq5eLQ+jcfDXIy
+          cF5a5BPwwqwMLzE9sx5ihr4XsVmw/EJLOcBR5rDwmEXvdKyTnXcl7kiKwu3af1jIVbEtf
+          dL07W2kdqzH2J2jLH3TKsxKsGGDwsu1xwya6mBP528XxZcwNy26fg70g1FpdA+cmaA7NK
+          iPdIEKd8DyVko28yQBwYVHmVRMC96y1NbN11r4tkUHL8Wzm2phlE2AzFmhRm9dyI770pA
+          1KBw0HPvOG8At4rGJv+of+8u65zutfNbjF0d60g/zmXi/1YfYYdHVea78w+KrVK5k6pKn
+          GzXb3bWqd4sUgnkmzUumTF49fNbfrZ5RsQ9tb4YolfWbfBrDvEEYbLudRIYewT99LNz/p
+          PXuH90v0FGmBySKu7bmZ0suTJT5eQybQq9kgKx9tg1mHaMX6YwzbnYbplSs7brMMhEoRk
+          0uzOCtFUkj9N1g/vrtwiYSJ+SuyKvfF8/si1K4HvA99zcntJdNRslvMZoF+XMQZBTRvmQ
+          +661Wj0ChusuM5n9MiU+3PinpfL41aCERHUk9y14vPXv5s+2VzVCDfYNMg7sqk8WylAbk
+          /5eag+RuefOIIztIBq3+3tc3yUIc0Pf5lLsmoh05YUJlLbzHs8wGgzPD6X1+KQ=
+      password: !encrypted/pkcs1-oaep
+        - lSbg3cJz5gvUyx3OcVt2+2bArfKB43u5utNRE+KnTr55S78s824wr20LkKarxhXNSVICF
+          ivdQaPhILBvB49rOJ0uzqwXue8qmUSsRpf13Su0GKwX9vitH/hmIJj3pySQHXY8wyqpF1
+          SqIhDb35CjspdgK4KI7NRvFsHu6shIoKX4NeONAdhmyiAXeA0WsKN61SleG6k/JlAFLeS
+          gIIt4FzPepF//MGD5BSWlFvQXP0yecOmHUefEBY0YGEOLT6JQjH3a9LM1eFSu42N8x4yO
+          fEUheOuX8Z05TCiMVlgaFmDABzLhpA7ylEgme2w4G6+HiQ4TfYZlolKNIwQYBwiyaEguu
+          zXM8LBK8DFeWI9Vff8H+wuyRes6j0EvD7LSuuCu5KiZrAVLsDprjUlkjz5ZwSgYbxSJN+
+          2KXrTPn7UeEind5rcWC6JEcgVsETTLw9EHO9OASHZ/5pXNMN8YRq4kGa+6SfRFV7VugtL
+          qXYNKh1Ez4ChUrCY3q00mSZ+NIdhjH+qBUAJRHCfS4HwPoBdHvdCNpJnN1bQGogqzPMXn
+          +PNnMokZk9/8ArcTJsR3euMTJRESRWCLczDop+y44DotFmLm4XeKxFBICiUz6wKX2b17+
+          zDnswe2fTFlZ+mhqMkiyuEl2uuBL8NMGqTdCk84b6LDObXG33Zs0TrWNkc/K/U=
+
+- job:
+    name: armada-operator-upload-git-mirror
+    parent: upload-git-mirror
+    description: Mirrors airship/armada-operator to airshipit/armada-operator
+    vars:
+      git_mirror_repository: airshipit/armada-operator
+    secrets:
+      - name: git_mirror_credentials
+        secret: armada-operator-airshipit-github-ed25519-secret-2026-01-13
+        pass-to-parent: true
+
+
+- secret:
+    name: armada-operator-airshipit-github-ed25519-secret-2026-01-13
+    data:
+      user: git
+      host: github.com
+      host_key: github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+      ssh_key: !encrypted/pkcs1-oaep
+        - h1ZxYczKcZSe+vxTT0aZEP4cioEIdcxpCFwgiStiPHPp/5Qveqr1ULxjSD4mtdNHyPemd`
+          r3GbcTjCpTwMhVWC95N4W8ce77bwlpJBHvuZzpJ4rWg2mbAPHyueKLI8PaJoI53EkSJeK
+          Adsfn65mBIunxVp19a7O9tN8mhnRvjn9/RoJFaD92oJSHvIGz0k5zs3lEO44uetqsktu0
+          LILLVyStS5+UPKpJPRCsJxH1TWWSbtEPGsVsoG6y8gt2j9hE9Jeb2LneZLbX8XP/CdygK
+          wxO3aLc6Eo63Yj1zc2rVFz1RqmegyNmKpKK+CQtTe93v4dTRfmf9o9zKUA7YtPjN3qikl
+          UGffEsGWc74ud4CFARe5Bm7Ieg5D6ZRl7xrR+r96orcENMoVJNCFXCRalcj/dMHk7anQP
+          JEtj3sAf1j5FrpSPxX7WYAM8zRb8G0FfweIysNdt/2Kw8V56Jz5HJbJRLoNRbP9KLZos6
+          82UikdZgH0wXm2lbHMgpAUCaGHruBl14RphaiVkOvTPcT52LKOXi3rWa8gzmbQrJiDL4X
+          zdOLEiRXKMALSt3LvZ0wQ0Ahk06TcavXOw4qxINVlrTmytwuyqAq2dV7+Fzu12xASaPkt
+          3yT1VTVZbno8OhDEJ5SGm0ZklZs5XsTtkAcN5BBsrSqBCZpBpepwjoV2EHS9+8=
