@@ -14,17 +14,20 @@
     check:
       jobs:
         - armada-operator-docker-build-gate-ubuntu_jammy
+        - armada-operator-docker-build-gate-ubuntu_noble
         - armada-operator-airskiff-deployment-jammy
+        - armada-operator-airskiff-deployment-noble
 
     gate:
       jobs:
         - armada-operator-docker-build-gate-ubuntu_jammy
+        - armada-operator-docker-build-gate-ubuntu_noble
 
     post:
       jobs:
         - armada-operator-upload-git-mirror
         - armada-operator-docker-publish-ubuntu_jammy
-
+        - armada-operator-docker-publish-ubuntu_noble
 
 - nodeset:
     name: armada-operator-single-node-jammy
@@ -46,6 +49,24 @@
       CLONE_ARMADA_OPERATOR: false
       MAKE_ARMADA_OPERATOR_IMAGES: true
       USE_ARMADA_GO: true
+      DISTRO: ubuntu_jammy
+      gate_scripts_relative_path: ../../airship/treasuremap
+
+- job:
+    name: armada-operator-airskiff-deployment-noble
+    description: |
+      Deploy Memcached using Airskiff and submitted Armada-operator changes.
+    parent: treasuremap-airskiff-infra-deploy-base
+    nodeset: treasuremap-airskiff-1node-ubuntu_jammy
+    required-projects:
+      - name: airship/treasuremap
+        override-checkout: v1.9
+    vars:
+      treasuremap_ref: v1.9
+      CLONE_ARMADA_OPERATOR: false
+      MAKE_ARMADA_OPERATOR_IMAGES: true
+      USE_ARMADA_GO: true
+      DISTRO: ubuntu_noble
       gate_scripts_relative_path: ../../airship/treasuremap
 
 - job:
@@ -56,6 +77,18 @@
     vars:
       publish: false
       distro: ubuntu_jammy
+      tags:
+        dynamic:
+          patch_set: true
+
+- job:
+    name: armada-operator-docker-build-gate-ubuntu_noble
+    timeout: 3600
+    run: tools/gate/playbooks/docker-image-build.yaml
+    nodeset: armada-operator-single-node-jammy
+    vars:
+      publish: false
+      distro: ubuntu_noble
       tags:
         dynamic:
           patch_set: true
@@ -77,32 +110,22 @@
         static:
           - latest
 
-
-- secret:
-    name: airship_armada_operator_quay_creds
-    data:
-      username: !encrypted/pkcs1-oaep
-        - DjQA+Mkrg0oNfTcPFBCOwx0K+B7LsV9ceV7MK9C83sZDKUC5aKfhdn/myvKQKunIth4B8
-          y++q+ano+rk3fteyT5hAT73e59koN0EkHrMknqdm8C0AMXoGJ2ktZFwho0ehzj8WX43hW
-          67cWRYUHImOxuUn9oaMT11ZrDCBbAz1gKLRGPgtiYaEnKjaksiAcaBY1xIIjvr+DFbBZ3
-          CmZ39EKRwhJxfGBA7nKbC4fFTQpR9GQD6SBR5kz8J6nIzeywJ4KQQEoICb9kwa0y4us0D
-          efxej72cEI31FXGeV9Hm6YpaKSBL/Ko67rrBU2P8+kdqtI5mTKyj97yMwEMqPn6E2RkQZ
-          44l9OAOSJIYtHQyvdCfpoYhzojZRabpcKkgB1Lq///ysmRdDWA3CBTurIyR8zjJdGreaY
-          DYiWFen50tlAgRwewWgWEIqPnmEKYCGKLF5BAK49NQWkcr/2d+TQLcyE7IYWJtp1VEHnb
-          8t8gzvhwWcR0AKmxOMGO/TUuBw70nCl5FUl/lxBFVvlQS0eGM8ZcDvs3survIgjmHsyyI
-          6LGuB6Yh+Qbw+YmBxSsp75mm9D+v0mFtdxCgs9JMTPFI3d40CGhDbAXfCYHqTrh71pSCq
-          a+ZWtixKOqhmIY6T9QCyFvBPB2ozQbmfgIlrRcs5pcNzO/xQfGf8JDiIceG7nE=
-      password: !encrypted/pkcs1-oaep
-        - c3cKJlMVv6mXnkCPPVyfJ9Vra140TOZKIK041eaajHnqoxR+R2sI50PrvF3r0rqnCJ4hs
-          955XM9Idk5Y6urkkg5XAPDXLU7scBwN/WxO6KWadwtoxSFgn3sF/bctE55m18PZakUo3u
-          oB05pBRlS0NITf6PCvwi0CphJbJEayVsPuNGP2EqP5WJ8xOrRu48SiuOlF0UuTA05oCta
-          oYMG691bTt8EdDawaVpqtDcOcGEEqjXfizCoTiZhSYbtU8u86QXysdhKTFkPZiVd5kKiH
-          q3zKLH3DEjK2XdSv4vouarmgKFymJ1+1hfUdfR2zNiJDM7a1YjEkOKlC+MaTBbjaoL7TF
-          DfYgBkef10U+pp8VpM+zaU8/nJgeAn1rJzEm6IbYqW8Cd6N7IC1qLPU8GG1d0QtrYy7FP
-          xr/5aAtiGFQ9dyUuwqBgNGngu5RXKJdnXD0yaUQ2Ptju5fwUo/vnQId/K+L8KIOjjRd9h
-          SYsOer9caZOZ8Sin7udDzH/L/yFQQeu/HCZqWNtMJR49a2TvI31v75TtoY2Z2JhkEIGs7
-          PryaAxEZywk1xP701FLFsdIWPbpvu+TElNnbEc+dI6HXtdpV6hArHI1LY0qplLtNV7c/g
-          GRXIKFyn7yVMpdRMt9i+IncN2m/xskSIn4IOgcLbTD4giFDE2ZBdpEareD4kEA=
+- job:
+    name: armada-operator-docker-publish-ubuntu_noble
+    timeout: 3600
+    run: tools/gate/playbooks/docker-image-build.yaml
+    nodeset: armada-operator-single-node-jammy
+    secrets:
+      - airship_armada_operator_quay_creds_2026
+    vars:
+      publish: true
+      distro: ubuntu_noble
+      tags:
+        dynamic:
+          branch: true
+          commit: true
+        static:
+          - latest
 
 - secret:
     name: airship_armada_operator_quay_creds_2026
