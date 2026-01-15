@@ -30,6 +30,12 @@
         - armada-operator-docker-publish-ubuntu_noble
 
 - nodeset:
+    name: armada-operator-single-node-noble
+    nodes:
+      - name: primary
+        label: ubuntu-noble
+
+- nodeset:
     name: armada-operator-single-node-jammy
     nodes:
       - name: primary
@@ -50,6 +56,7 @@
       MAKE_ARMADA_OPERATOR_IMAGES: true
       USE_ARMADA_GO: true
       DISTRO: ubuntu_jammy
+      DOCKER_REGISTRY: localhost:5000
       gate_scripts_relative_path: ../../airship/treasuremap
 
 - job:
@@ -67,6 +74,7 @@
       MAKE_ARMADA_OPERATOR_IMAGES: true
       USE_ARMADA_GO: true
       DISTRO: ubuntu_noble
+      DOCKER_REGISTRY: localhost:5000
       gate_scripts_relative_path: ../../airship/treasuremap
 
 - job:
