@@ -13,20 +13,16 @@
 - project:
     check:
       jobs:
-        - armada-operator-docker-build-gate-ubuntu_jammy
         - armada-operator-docker-build-gate-ubuntu_noble
-        - armada-operator-airskiff-deployment-jammy
         - armada-operator-airskiff-deployment-noble
 
     gate:
       jobs:
-        - armada-operator-docker-build-gate-ubuntu_jammy
         - armada-operator-docker-build-gate-ubuntu_noble
 
     post:
       jobs:
         - armada-operator-upload-git-mirror
-        - armada-operator-docker-publish-ubuntu_jammy
         - armada-operator-docker-publish-ubuntu_noble
 
 - nodeset:
@@ -42,29 +38,11 @@
         label: ubuntu-jammy
 
 - job:
-    name: armada-operator-airskiff-deployment-jammy
-    description: |
-      Deploy Memcached using Airskiff and submitted Armada-operator changes.
-    parent: treasuremap-airskiff-infra-deploy-base
-    nodeset: treasuremap-airskiff-1node-ubuntu_jammy
-    required-projects:
-      - name: airship/treasuremap
-        override-checkout: v1.9
-    vars:
-      treasuremap_ref: v1.9
-      CLONE_ARMADA_OPERATOR: false
-      MAKE_ARMADA_OPERATOR_IMAGES: true
-      USE_ARMADA_GO: true
-      DISTRO: ubuntu_jammy
-      DOCKER_REGISTRY: localhost:5000
-      gate_scripts_relative_path: ../../airship/treasuremap
-
-- job:
     name: armada-operator-airskiff-deployment-noble
     description: |
       Deploy Memcached using Airskiff and submitted Armada-operator changes.
     parent: treasuremap-airskiff-infra-deploy-base
-    nodeset: treasuremap-airskiff-1node-ubuntu_jammy
+    nodeset: treasuremap-airskiff-1node-ubuntu_noble
     required-projects:
       - name: airship/treasuremap
         override-checkout: v1.9
@@ -78,22 +56,10 @@
       gate_scripts_relative_path: ../../airship/treasuremap
 
 - job:
-    name: armada-operator-docker-build-gate-ubuntu_jammy
-    timeout: 3600
-    run: tools/gate/playbooks/docker-image-build.yaml
-    nodeset: armada-operator-single-node-jammy
-    vars:
-      publish: false
-      distro: ubuntu_jammy
-      tags:
-        dynamic:
-          patch_set: true
-
-- job:
     name: armada-operator-docker-build-gate-ubuntu_noble
     timeout: 3600
     run: tools/gate/playbooks/docker-image-build.yaml
-    nodeset: armada-operator-single-node-jammy
+    nodeset: armada-operator-single-node-noble
     vars:
       publish: false
       distro: ubuntu_noble
@@ -102,27 +68,10 @@
           patch_set: true
 
 - job:
-    name: armada-operator-docker-publish-ubuntu_jammy
-    timeout: 3600
-    run: tools/gate/playbooks/docker-image-build.yaml
-    nodeset: armada-operator-single-node-jammy
-    secrets:
-      - airship_armada_operator_quay_creds_2026
-    vars:
-      publish: true
-      distro: ubuntu_jammy
-      tags:
-        dynamic:
-          branch: true
-          commit: true
-        static:
-          - latest
-
-- job:
     name: armada-operator-docker-publish-ubuntu_noble
     timeout: 3600
     run: tools/gate/playbooks/docker-image-build.yaml
-    nodeset: armada-operator-single-node-jammy
+    nodeset: armada-operator-single-node-noble
     secrets:
       - airship_armada_operator_quay_creds_2026
     vars:
