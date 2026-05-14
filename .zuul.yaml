@@ -31,18 +31,13 @@
       - name: primary
         label: ubuntu-noble
 
-- nodeset:
-    name: armada-operator-single-node-jammy
-    nodes:
-      - name: primary
-        label: ubuntu-jammy
 
 - job:
     name: armada-operator-airskiff-deployment-noble
     description: |
       Deploy Memcached using Airskiff and submitted Armada-operator changes.
     parent: treasuremap-airskiff-infra-deploy-base
-    nodeset: treasuremap-airskiff-1node-ubuntu_noble
+    nodeset: treasuremap-airskiff-5nodes-ubuntu_noble
     required-projects:
       - name: airship/treasuremap
         override-checkout: v1.9
@@ -52,17 +47,23 @@
       MAKE_ARMADA_OPERATOR_IMAGES: true
       USE_ARMADA_GO: true
       DISTRO: ubuntu_noble
-      DOCKER_REGISTRY: localhost:5000
+      DOCKER_REGISTRY: "control-plane.minikube.internal:5000"
       gate_scripts_relative_path: ../../airship/treasuremap
 
 - job:
     name: armada-operator-docker-build-gate-ubuntu_noble
     timeout: 3600
-    run: tools/gate/playbooks/docker-image-build.yaml
+    parent: airship-docker-build-gate-base
     nodeset: armada-operator-single-node-noble
+    required-projects:
+      - name: airship/treasuremap
+        override-checkout: v1.9
     vars:
       publish: false
       distro: ubuntu_noble
+      run_verbose_build: true
+      trivy_fail_on_vulns: true
+      trivy_severity: CRITICAL,HIGH
       tags:
         dynamic:
           patch_set: true
@@ -70,11 +71,13 @@
 - job:
     name: armada-operator-docker-publish-ubuntu_noble
     timeout: 3600
-    run: tools/gate/playbooks/docker-image-build.yaml
+    parent: airship-docker-build-gate-base
     nodeset: armada-operator-single-node-noble
-    secrets:
-      - airship_armada_operator_quay_creds_2026
+    required-projects:
+      - name: airship/treasuremap
+        override-checkout: v1.9
     vars:
+      quay_creds: "{{ airship_armada_operator_quay_creds_2026 }}"
       publish: true
       distro: ubuntu_noble
       tags:
