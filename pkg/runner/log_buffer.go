@@ -18,17 +18,22 @@ package runner
 
 import (
 	"container/ring"
+	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
-	"helm.sh/helm/v3/pkg/action"
 )
 
 const defaultBufferSize = 5
 
-func NewDebugLog(log logr.Logger) action.DebugLog {
+// DebugLog is a printf-style debug log function, matching the v3 action.DebugLog signature.
+type DebugLog func(format string, v ...interface{})
+
+// NewDebugLog creates a DebugLog that forwards to the given logr.Logger.
+func NewDebugLog(log logr.Logger) DebugLog {
 	return func(format string, v ...interface{}) {
 		log.Info(fmt.Sprintf(format, v...))
 	}
@@ -36,11 +41,11 @@ func NewDebugLog(log logr.Logger) action.DebugLog {
 
 type LogBuffer struct {
 	mu     sync.Mutex
-	log    action.DebugLog
+	log    DebugLog
 	buffer *ring.Ring
 }
 
-func NewLogBuffer(log action.DebugLog, size int) *LogBuffer {
+func NewLogBuffer(log DebugLog, size int) *LogBuffer {
 	if size <= 0 {
 		size = defaultBufferSize
 	}
@@ -83,3 +88,26 @@ func (l *LogBuffer) String() string {
 	l.mu.Unlock()
 	return strings.TrimSpace(str)
 }
+
+// SlogHandler returns a slog.Handler that feeds log records into this LogBuffer.
+func (l *LogBuffer) SlogHandler() slog.Handler {
+	return &logBufferSlogHandler{buf: l}
+}
+
+type logBufferSlogHandler struct {
+	buf   *LogBuffer
+	attrs []slog.Attr
+}
+
+func (h *logBufferSlogHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+
+func (h *logBufferSlogHandler) Handle(_ context.Context, r slog.Record) error {
+	h.buf.Log("%s", r.Message)
+	return nil
+}
+
+func (h *logBufferSlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &logBufferSlogHandler{buf: h.buf, attrs: append(h.attrs, attrs...)}
+}
+
+func (h *logBufferSlogHandler) WithGroup(_ string) slog.Handler { return h }

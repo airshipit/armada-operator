@@ -36,12 +36,13 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	v3 "github.com/tigera/api/pkg/apis/projectcalico/v3"
 	calico "github.com/tigera/api/pkg/client/clientset_generated/clientset"
-	"helm.sh/helm/v3/pkg/chart"
-	"helm.sh/helm/v3/pkg/chart/loader"
-	"helm.sh/helm/v3/pkg/chartutil"
-	helmkube "helm.sh/helm/v3/pkg/kube"
-	"helm.sh/helm/v3/pkg/release"
-	"helm.sh/helm/v3/pkg/storage/driver"
+	"helm.sh/helm/v4/pkg/chart/common"
+	chart "helm.sh/helm/v4/pkg/chart/v2"
+	"helm.sh/helm/v4/pkg/chart/v2/loader"
+	helmkube "helm.sh/helm/v4/pkg/kube"
+	releasecommon "helm.sh/helm/v4/pkg/release/common"
+	release "helm.sh/helm/v4/pkg/release/v1"
+	"helm.sh/helm/v4/pkg/storage/driver"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -149,10 +150,10 @@ func (r *ArmadaChartReconciler) reconcile(ctx context.Context, ac armadav1.Armad
 	}
 
 	// Prepare values
-	var vals map[string]interface{}
+	var vals common.Values
 	if ac.Spec.Values != nil {
 		var valsErr error
-		vals, valsErr = chartutil.ReadValues(ac.Spec.Values.Raw)
+		vals, valsErr = common.ReadValues(ac.Spec.Values.Raw)
 		if valsErr != nil {
 			return armadav1.ArmadaChartNotReady(ac, "InitFailed", valsErr.Error()), ctrl.Result{}, valsErr
 		}
@@ -169,7 +170,7 @@ func (r *ArmadaChartReconciler) reconcile(ctx context.Context, ac armadav1.Armad
 }
 
 func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
-	ac armadav1.ArmadaChart, chrt *chart.Chart, vals chartutil.Values) (armadav1.ArmadaChart, error) {
+	ac armadav1.ArmadaChart, chrt *chart.Chart, vals common.Values) (armadav1.ArmadaChart, error) {
 
 	log := ctrl.LoggerFrom(ctx)
 	gettr, err := r.buildRESTClientGetter(ac.Namespace, log)
@@ -203,14 +204,14 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 			return armadav1.ArmadaChartNotReady(ac, "UpdateStatusFailed", updateStatusErr.Error()), updateStatusErr
 		}
 
-		if rel.Info.Status == release.StatusDeployed && !isUpdateRequired(ctx, rel, chrt, vals) {
+		if rel.Info.Status == releasecommon.StatusDeployed && !isUpdateRequired(ctx, rel, chrt, vals) {
 			log.Info("no updates found, skipping upgrade")
 			return r.finalizeRelease(ctx, run, restCfg, ac)
 		}
 
 		if rel.Info.Status.IsPending() {
 			log.Info("warning: release in pending state, unlocking")
-			rel.SetStatus(release.StatusFailed, fmt.Sprintf("release unlocked from stale state"))
+			rel.SetStatus(releasecommon.StatusFailed, fmt.Sprintf("release unlocked from stale state"))
 			if err = run.UpdateReleaseStatus(rel); err != nil {
 				return armadav1.ArmadaChartNotReady(ac, "UpdateHelmStatusFailed", err.Error()), err
 			}
@@ -296,7 +297,7 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 				}
 			}
 
-			if rr, err := kc.Update(current, target, true); err != nil {
+			if rr, err := kc.Update(current, target, helmkube.ClientUpdateOptionForceReplace(true)); err != nil {
 				log.Info(fmt.Sprintf("failed to update CustomResourceDefinition(s): %s", err))
 				return armadav1.ArmadaChartNotReady(ac, "CRDUpdateFailed", err.Error()), err
 			} else {
@@ -712,7 +713,7 @@ func (r *ArmadaChartReconciler) reconcileDelete(ctx context.Context, ac *armadav
 
 	// Remove our finalizer from the list and update it.
 	controllerutil.RemoveFinalizer(ac, armadav1.ArmadaChartFinalizer)
-	ac.Status.HelmStatus = string(release.StatusUninstalled)
+	ac.Status.HelmStatus = string(releasecommon.StatusUninstalled)
 	if err := r.Update(ctx, ac); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -735,7 +736,7 @@ func (r *ArmadaChartReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&armadav1.ArmadaChart{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
 }
 
-func isUpdateRequired(ctx context.Context, release *release.Release, chrt *chart.Chart, vals chartutil.Values) bool {
+func isUpdateRequired(ctx context.Context, release *release.Release, chrt *chart.Chart, vals common.Values) bool {
 	log := ctrl.LoggerFrom(ctx)
 
 	switch {

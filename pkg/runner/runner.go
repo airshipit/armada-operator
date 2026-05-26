@@ -19,16 +19,17 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
-	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart"
-	"helm.sh/helm/v3/pkg/chartutil"
-	"helm.sh/helm/v3/pkg/kube"
-	"helm.sh/helm/v3/pkg/release"
-	"helm.sh/helm/v3/pkg/storage/driver"
+	"helm.sh/helm/v4/pkg/action"
+	"helm.sh/helm/v4/pkg/chart/common"
+	chart "helm.sh/helm/v4/pkg/chart/v2"
+	"helm.sh/helm/v4/pkg/kube"
+	release "helm.sh/helm/v4/pkg/release/v1"
+	"helm.sh/helm/v4/pkg/storage/driver"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
 	armadav1 "opendev.org/airship/armada-operator/api/v1"
@@ -63,18 +64,16 @@ func NewRunner(getter genericclioptions.RESTClientGetter, storageNamespace strin
 		logBuffer: NewLogBuffer(NewDebugLog(logger.V(2)), defaultBufferSize),
 	}
 
-	// Default to the trace level logger for the Helm action configuration,
-	// to ensure storage logs are captured.
-	cfg := new(action.Configuration)
-	if err := cfg.Init(getter, storageNamespace, "secret", NewDebugLog(logger)); err != nil {
+	handler := runner.logBuffer.SlogHandler()
+	cfg := action.NewConfiguration(action.ConfigurationSetLogger(handler))
+	if err := cfg.Init(getter, storageNamespace, "secret"); err != nil {
 		return nil, err
 	}
 
-	// Override the logger used by the Helm actions and Kube client with the log buffer,
-	// which provides useful information in the event of an error.
-	cfg.Log = runner.logBuffer.Log
+	// Override the kube client logger with our log buffer so captured logs
+	// appear in error messages.
 	if kc, ok := cfg.KubeClient.(*kube.Client); ok {
-		kc.Log = runner.logBuffer.Log
+		kc.SetLogger(handler)
 	}
 	runner.config = cfg
 
@@ -82,7 +81,7 @@ func NewRunner(getter genericclioptions.RESTClientGetter, storageNamespace strin
 }
 
 // Install runs a Helm install action for the given ArmadaChart.
-func (r *Runner) Install(ctx context.Context, ac armadav1.ArmadaChart, chart *chart.Chart, values chartutil.Values) (*release.Release, error) {
+func (r *Runner) Install(ctx context.Context, ac armadav1.ArmadaChart, chrt *chart.Chart, values common.Values) (*release.Release, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	defer r.logBuffer.Reset()
@@ -90,37 +89,56 @@ func (r *Runner) Install(ctx context.Context, ac armadav1.ArmadaChart, chart *ch
 	install := action.NewInstall(r.config)
 	install.ReleaseName = ac.Name
 	install.Namespace = ac.Namespace
+	install.Timeout = time.Duration(int64(time.Second) * int64(ac.Spec.Wait.Timeout))
 
-	if ac.Spec.Wait.Native != nil && ac.Spec.Wait.Native.Enabled && ac.Spec.Wait.Timeout > 0 {
-		install.Wait = true
-		install.Timeout = time.Duration(int64(time.Second) * int64(ac.Spec.Wait.Timeout))
+	// HookOnly: wait for hooks only; Legacy: wait for all resources and hooks.
+	install.WaitStrategy = kube.HookOnlyStrategy
+	if ac.Spec.Wait.Native != nil && ac.Spec.Wait.Native.Enabled {
+		install.WaitStrategy = kube.LegacyStrategy
 	}
 	install.DisableOpenAPIValidation = true
 	install.CreateNamespace = true
 
-	rel, err := install.RunWithContext(ctx, chart, values.AsMap())
-	return rel, wrapActionErr(r.logBuffer, err)
+	reli, err := install.RunWithContext(ctx, chrt, values.AsMap())
+	if err != nil {
+		return nil, wrapActionErr(r.logBuffer, err)
+	}
+	rel, ok := reli.(*release.Release)
+	if !ok {
+		return nil, fmt.Errorf("unexpected release type: %T", reli)
+	}
+	return rel, nil
 }
 
 // Upgrade runs a Helm upgrade action for the given ArmadaChart.
-func (r *Runner) Upgrade(ctx context.Context, ac armadav1.ArmadaChart, chart *chart.Chart, values chartutil.Values) (*release.Release, error) {
+func (r *Runner) Upgrade(ctx context.Context, ac armadav1.ArmadaChart, chrt *chart.Chart, values common.Values) (*release.Release, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	defer r.logBuffer.Reset()
 
 	upgrade := action.NewUpgrade(r.config)
 	upgrade.Namespace = ac.Spec.Namespace
-	if ac.Spec.Wait.Native != nil && ac.Spec.Wait.Native.Enabled && ac.Spec.Wait.Timeout > 0 {
-		upgrade.Wait = true
-		upgrade.Timeout = time.Duration(int64(time.Second) * int64(ac.Spec.Wait.Timeout))
+	upgrade.Timeout = time.Duration(int64(time.Second) * int64(ac.Spec.Wait.Timeout))
+
+	// HookOnly: wait for hooks only; Legacy: wait for all resources and hooks.
+	upgrade.WaitStrategy = kube.HookOnlyStrategy
+	if ac.Spec.Wait.Native != nil && ac.Spec.Wait.Native.Enabled {
+		upgrade.WaitStrategy = kube.LegacyStrategy
 	}
 	upgrade.DisableOpenAPIValidation = true
 
-	rel, err := upgrade.RunWithContext(ctx, ac.Name, chart, values.AsMap())
-	return rel, wrapActionErr(r.logBuffer, err)
+	reli, err := upgrade.RunWithContext(ctx, ac.Name, chrt, values.AsMap())
+	if err != nil {
+		return nil, wrapActionErr(r.logBuffer, err)
+	}
+	rel, ok := reli.(*release.Release)
+	if !ok {
+		return nil, fmt.Errorf("unexpected release type: %T", reli)
+	}
+	return rel, nil
 }
 
-// Test runs an Helm test action for the given ArmadaChart.
+// Test runs a Helm test action for the given ArmadaChart.
 func (r *Runner) Test(ac armadav1.ArmadaChart) (*release.Release, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -131,18 +149,25 @@ func (r *Runner) Test(ac armadav1.ArmadaChart) (*release.Release, error) {
 	test.Namespace = ac.Spec.Namespace
 	test.Timeout = time.Duration(int64(time.Second) * int64(ac.Spec.Wait.Timeout))
 
-	rel, err := test.Run(ac.Name)
-	return rel, wrapActionErr(r.logBuffer, err)
+	reli, _, err := test.Run(ac.Name)
+	if err != nil {
+		return nil, wrapActionErr(r.logBuffer, err)
+	}
+	rel, ok := reli.(*release.Release)
+	if !ok {
+		return nil, fmt.Errorf("unexpected release type: %T", reli)
+	}
+	return rel, nil
 }
 
-// Uninstall runs an Helm uninstall action
+// Uninstall runs a Helm uninstall action
 func (r *Runner) Uninstall(ac armadav1.ArmadaChart) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	defer r.logBuffer.Reset()
 
 	uninstall := action.NewUninstall(r.config)
-	uninstall.Wait = true
+	uninstall.WaitStrategy = kube.LegacyStrategy
 	uninstall.Timeout = time.Duration(int64(time.Second) * 300)
 
 	_, err := uninstall.Run(ac.Name)
@@ -152,11 +177,18 @@ func (r *Runner) Uninstall(ac armadav1.ArmadaChart) error {
 // ObserveLastRelease observes the last revision, if there is one,
 // for the actual Helm release associated with the given ArmadaChart.
 func (r *Runner) ObserveLastRelease(ac armadav1.ArmadaChart) (*release.Release, error) {
-	rel, err := r.config.Releases.Last(ac.Name)
+	reli, err := r.config.Releases.Last(ac.Name)
 	if err != nil && errors.Is(err, driver.ErrReleaseNotFound) {
-		err = nil
+		return nil, nil
 	}
-	return rel, err
+	if err != nil {
+		return nil, err
+	}
+	rel, ok := reli.(*release.Release)
+	if !ok {
+		return nil, fmt.Errorf("unexpected release type: %T", reli)
+	}
+	return rel, nil
 }
 
 // UpdateReleaseStatus sets the new status for release
