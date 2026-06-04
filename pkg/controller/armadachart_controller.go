@@ -256,6 +256,10 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 
 		if ac.Spec.Upgrade.PreUpgrade.UpdateCRD {
 			kc := helmkube.New(gettr)
+			if err := kc.SetWaiter(helmkube.LegacyStrategy); err != nil {
+				log.Info(fmt.Sprintf("failed to initialize kube waiter: %s", err))
+				return armadav1.ArmadaChartNotReady(ac, "CRDUpdateFailed", err.Error()), err
+			}
 			target := make(helmkube.ResourceList, 0)
 			for _, CRDObj := range chrt.CRDObjects() {
 				res, err := kc.Build(bytes.NewBuffer(CRDObj.File.Data), false)
@@ -297,7 +301,7 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 				}
 			}
 
-			if rr, err := kc.Update(current, target, helmkube.ClientUpdateOptionForceReplace(true)); err != nil {
+			if rr, err := kc.Update(current, target, helmkube.ClientUpdateOptionServerSideApply(true, true)); err != nil {
 				log.Info(fmt.Sprintf("failed to update CustomResourceDefinition(s): %s", err))
 				return armadav1.ArmadaChartNotReady(ac, "CRDUpdateFailed", err.Error()), err
 			} else {
