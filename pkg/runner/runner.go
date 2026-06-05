@@ -98,6 +98,8 @@ func (r *Runner) Install(ctx context.Context, ac armadav1.ArmadaChart, chrt *cha
 	}
 	install.DisableOpenAPIValidation = true
 	install.CreateNamespace = true
+	// Force SSA to take ownership of CRD fields from any conflicting field manager.
+	install.ForceConflicts = true
 
 	reli, err := install.RunWithContext(ctx, chrt, values.AsMap())
 	if err != nil {
