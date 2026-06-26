@@ -38,7 +38,7 @@ ENV LC_ALL=C.UTF-8
 # Install CA certificates
 RUN apt update \
     && apt upgrade -y \
-    && apt install -y ca-certificates \
+    && apt install -y ca-certificates openssl \
     && apt autoremove -yqq --purge \
     && apt clean \
     && rm -rf \
