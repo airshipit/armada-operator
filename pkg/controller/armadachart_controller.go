@@ -743,10 +743,14 @@ func (r *ArmadaChartReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func isUpdateRequired(ctx context.Context, release *release.Release, chrt *chart.Chart, vals common.Values) bool {
 	log := ctrl.LoggerFrom(ctx)
 
+	// ModTime is not part of the rendered output,
+	// so ignore it when detecting drift.
+	ignoreModTime := cmpopts.IgnoreFields(common.File{}, "ModTime")
+
 	switch {
-	case !cmp.Equal(release.Chart.Templates, chrt.Templates, cmpopts.EquateEmpty()):
+	case !cmp.Equal(release.Chart.Templates, chrt.Templates, cmpopts.EquateEmpty(), ignoreModTime):
 		log.Info("There are chart template diffs found")
-		log.Info(cmp.Diff(release.Chart.Templates, chrt.Templates))
+		log.Info(cmp.Diff(release.Chart.Templates, chrt.Templates, ignoreModTime))
 		return true
 
 	case !cmp.Equal(release.Config, vals.AsMap(), cmpopts.EquateEmpty()):
@@ -754,9 +758,9 @@ func isUpdateRequired(ctx context.Context, release *release.Release, chrt *chart
 		log.Info(cmp.Diff(release.Config, vals.AsMap(), cmpopts.EquateEmpty()))
 		return true
 
-	case !cmp.Equal(release.Chart.CRDObjects(), chrt.CRDObjects(), cmpopts.EquateEmpty()):
+	case !cmp.Equal(release.Chart.CRDObjects(), chrt.CRDObjects(), cmpopts.EquateEmpty(), ignoreModTime):
 		log.Info("There are chart CRD diffs found")
-		log.Info(cmp.Diff(release.Config, vals.AsMap(), cmpopts.EquateEmpty()))
+		log.Info(cmp.Diff(release.Chart.CRDObjects(), chrt.CRDObjects(), cmpopts.EquateEmpty(), ignoreModTime))
 		return true
 	}
 	return false
