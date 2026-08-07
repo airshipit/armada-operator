@@ -61,6 +61,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	armadav1 "opendev.org/airship/armada-operator/api/v1"
@@ -103,7 +104,7 @@ func (r *ArmadaChartReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		controllerutil.AddFinalizer(&ac, armadav1.ArmadaChartFinalizer)
 		if err := r.Patch(ctx, &ac, patch); err != nil {
 			log.Error(err, "unable to register finalizer")
-			return requeueRequired(ac, ctrl.Result{}, err)
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -736,8 +737,44 @@ func (r *ArmadaChartReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	r.ControllerName = "armada-controller"
 
+	// GenerationChangedPredicate only fires on .spec changes, missing finalizer
+	// or deletionTimestamp changes (both metadata). OR it with a predicate on
+	// those so the finalizer is reliably (re)added and deletions are handled.
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&armadav1.ArmadaChart{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
+		For(&armadav1.ArmadaChart{}, builder.WithPredicates(
+			predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				finalizerOrDeletionChangedPredicate(),
+			),
+		)).Complete(r)
+}
+
+// finalizerOrDeletionChangedPredicate triggers reconciliation when an object's
+// finalizer set changes or when it transitions into (or out of) deletion, even
+// if .metadata.generation is unchanged.
+func finalizerOrDeletionChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			if e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero() {
+				return true
+			}
+			return !equalFinalizers(e.ObjectOld.GetFinalizers(), e.ObjectNew.GetFinalizers())
+		},
+	}
+}
+
+func equalFinalizers(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	a = slices.Clone(a)
+	b = slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }
 
 func isUpdateRequired(ctx context.Context, release *release.Release, chrt *chart.Chart, vals common.Values) bool {
