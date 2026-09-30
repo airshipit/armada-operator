@@ -1,18 +1,13 @@
 module opendev.org/airship/armada-operator
 
-go 1.26.5
-
-// The airshipit golang mirror only publishes up to 1.26.5, which ships a
-// stdlib with known CRITICAL/HIGH CVEs. Pin the build toolchain to 1.26.9 so
-// the binary links a patched stdlib regardless of the builder image version.
-toolchain go1.26.9
+go 1.26.9
 
 require (
-	github.com/go-logr/logr v1.4.3
+	github.com/go-logr/logr v1.4.4
 	github.com/google/go-cmp v0.7.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/onsi/ginkgo/v2 v2.28.3
-	github.com/onsi/gomega v1.40.0
+	github.com/onsi/ginkgo/v2 v2.33.1
+	github.com/onsi/gomega v1.44.0
 	github.com/tigera/api v0.0.0-20230406222214-ca74195900cb
 	github.com/tigera/operator v1.36.5
 	helm.sh/helm/v4 v4.2.2
@@ -126,7 +121,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
@@ -157,3 +152,9 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+// The pinned toolchain defaults GOEXPERIMENT=jsonv2 on, which the
+// transitively-required k8s.io/kube-openapi version does not build against.
+// `go mod tidy` otherwise resets this to the lower transitive minimum, so
+// pin it via replace rather than a plain require bump.
+replace k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20260618211814-8d7c10782fb4
