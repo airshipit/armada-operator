@@ -360,6 +360,15 @@ func (r *ArmadaChartReconciler) reconcileChart(ctx context.Context,
 			log.Info("helm upgrade has started")
 			rel, err = run.Upgrade(ctx, ac, chrt, vals)
 			if err != nil {
+				// Uninstalling deletes every resource the release owns. Only do
+				// that when the release itself is wedged, never because of a
+				// transient infrastructure failure, which a later reconcile can
+				// retry without destroying running workloads.
+				if isRetryableUpgradeError(err) {
+					log.Info(fmt.Sprintf("Upgrade failed with a retryable error, keeping existing release: %s", err.Error()))
+					err = fmt.Errorf("retryable upgrade failure: %s", err.Error())
+					return armadav1.ArmadaChartNotReady(ac, "UpgradeRetryableFailure", err.Error()), err
+				}
 				log.Info(fmt.Sprintf("Upgrade failed, reason: %s, trying to uninstall existing release", err.Error()))
 				if err := run.Uninstall(ac); err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
 					return armadav1.ArmadaChartNotReady(ac, "DeleteHelmStatusFailed", err.Error()), err
@@ -393,6 +402,68 @@ func (r *ArmadaChartReconciler) finalizeRelease(ctx context.Context, run *runner
 	}
 
 	return r.testRelease(ctx, run, hr)
+}
+
+// retryableUpgradeErrorPatterns identify transient, infrastructure-level
+// failures. Helm and server-side apply flatten most nested errors into opaque
+// strings, so typed unwrapping alone does not catch them.
+var retryableUpgradeErrorPatterns = []string{
+	"failed calling webhook",
+	"failed to call webhook",
+	"connection refused",
+	"connection reset by peer",
+	"no endpoints available",
+	"i/o timeout",
+	"context deadline exceeded",
+	"no such host",
+	"the server is currently unable to handle the request",
+	"etcdserver: request timed out",
+	"transport is closing",
+	"unexpected eof",
+	"tls handshake timeout",
+}
+
+// isRetryableUpgradeError reports whether a failed Helm upgrade was caused by a
+// transient infrastructure problem rather than by the release being in a state
+// that only a reinstall can clear.
+//
+// This matters because the upgrade failure path uninstalls the release, which
+// deletes every resource it owns. When the cause is transient - for example an
+// admission webhook whose only backing pod is briefly unavailable after a node
+// outage - uninstalling destroys healthy workloads, such as a running database,
+// in response to a condition that would have cleared on its own. Such failures
+// are reported back to the controller instead, which retries with backoff.
+func isRetryableUpgradeError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	if apierrors.IsInternalError(err) ||
+		apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsTimeout(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) ||
+		apierrors.IsUnexpectedServerError(err) {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	for _, pattern := range retryableUpgradeErrorPatterns {
+		if strings.Contains(msg, pattern) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (r *ArmadaChartReconciler) waitRelease(ctx context.Context, restCfg *rest.Config, hr armadav1.ArmadaChart) (armadav1.ArmadaChart, error) {
