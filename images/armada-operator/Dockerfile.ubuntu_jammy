@@ -1,8 +1,13 @@
 ARG FROM=quay.io/airshipit/ubuntu:jammy
 # Build the manager binary
-FROM quay.io/airshipit/golang:1.25.5-trixie AS builder
+FROM quay.io/airshipit/golang:1.26.5-trixie AS builder
 ARG TARGETOS
 ARG TARGETARCH
+
+# The golang images set GOTOOLCHAIN=local, which pins the build to the Go
+# version baked into the image. The mirror only publishes up to 1.26.5, whose
+# stdlib has known CVEs, so allow the toolchain named in go.mod to be fetched.
+ENV GOTOOLCHAIN=auto
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
