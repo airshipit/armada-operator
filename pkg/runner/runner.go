@@ -128,6 +128,8 @@ func (r *Runner) Upgrade(ctx context.Context, ac armadav1.ArmadaChart, chrt *cha
 		upgrade.WaitStrategy = kube.LegacyStrategy
 	}
 	upgrade.DisableOpenAPIValidation = true
+        // to align with install behavior
+        upgrade.ForceConflicts = true
 
 	reli, err := upgrade.RunWithContext(ctx, ac.Name, chrt, values.AsMap())
 	if err != nil {
